@@ -424,11 +424,12 @@ curl --proxy http://127.0.0.1:4444 http://i2p-projekt.i2p
 
 Once deployed, configure your mirrors in `config.py`. Example:
 
-| Network | URL |
-|---------|-----|
-| Tor | `http://your-onion-address.onion` |
-| I2P | `http://your-i2p-address.b32.i2p` |
-| Clearnet | `https://your-domain.com` (optional) |
+| Network | URL | Notes |
+|---------|-----|-------|
+| Tor | `http://your-onion-address.onion` | Use [OnionBalance](https://gitlab.torproject.org/tpo/onion-services/onionbalance/) if your service needs 24/7 Tor uptime |
+| I2P | `http://your-i2p-address.b32.i2p` | |
+| Clearnet | `https://your-domain.com` | Optional |
+
 
 ## Supported Formats
 

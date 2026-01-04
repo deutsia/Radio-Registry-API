@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+
+{% block title %}{{ station.name }} - Radio Registry{% endblock %}
+
+{% block content %}
+<p class="mb-2"><a href="/">&larr; Back to stations</a></p>
+
+<div class="card">
+    <h1>{{ station.name }}</h1>
+    
+    <div class="station-meta mb-2">
+        <span class="badge badge-{{ station.network }}">{{ station.network | upper }}</span>
+        {% if station.healthStatus == 'online' %}
+        <span class="badge badge-online">Online</span>
+        {% elif station.healthStatus == 'dead' %}
+        <span class="badge badge-dead">Dead</span>
+        {% else %}
+        <span class="badge badge-offline">Offline</span>
+        {% endif %}
+    </div>
+    
+    <table class="mb-2">
+        <tr>
+            <td class="text-muted">Stream URL</td>
+            <td style="word-break: break-all;">
+                <a href="{{ station.streamUrl }}">{{ station.streamUrl }}</a>
+            </td>
+        </tr>
+        {% if station.homepage %}
+        <tr>
+            <td class="text-muted">Homepage</td>
+            <td style="word-break: break-all;">
+                <a href="{{ station.homepage }}">{{ station.homepage }}</a>
+            </td>
+        </tr>
+        {% endif %}
+        {% if station.faviconUrl %}
+        <tr>
+            <td class="text-muted">Cover Art</td>
+            <td style="word-break: break-all;">
+                <a href="{{ station.faviconUrl }}">{{ station.faviconUrl }}</a>
+            </td>
+        </tr>
+        {% endif %}
+        <tr>
+            <td class="text-muted">Genre</td>
+            <td>{{ station.genre }}</td>
+        </tr>
+        <tr>
+            <td class="text-muted">Language</td>
+            <td>{{ station.language or 'Unknown' }}</td>
+        </tr>
+        <tr>
+            <td class="text-muted">Codec</td>
+            <td>{{ station.codec or 'Unknown' }}</td>
+        </tr>
+        <tr>
+            <td class="text-muted">Bitrate</td>
+            <td>{% if station.bitrate %}{{ station.bitrate }} kbps{% else %}Unknown{% endif %}</td>
+        </tr>
+    </table>
+    
+    <h3>Statistics</h3>
+    <table class="mb-2">
+        <tr>
+            <td class="text-muted">Last Check</td>
+            <td>{% if station.lastCheckTime %}{{ station.lastCheckTime | replace('T', ' ') | replace('Z', '') }} UTC{% else %}Never{% endif %}</td>
+        </tr>
+        <tr>
+            <td class="text-muted">Uptime</td>
+            <td>
+                {% if station.checkCount > 0 %}
+                {{ ((station.checkOkCount / station.checkCount) * 100) | round(1) }}% ({{ station.checkOkCount }}/{{ station.checkCount }} checks)
+                {% else %}
+                No data yet
+                {% endif %}
+            </td>
+        </tr>
+    </table>
+    
+    <div class="mt-2">
+        <a href="{{ station.streamUrl }}" class="btn">Play Stream</a>
+    </div>
+</div>
+{% endblock %}

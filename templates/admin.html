@@ -1,0 +1,225 @@
+{% extends "base.html" %}
+
+{% block title %}Admin Panel - Radio Registry{% endblock %}
+
+{% block head %}
+<style>
+    .admin-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 2rem;
+    }
+    .admin-actions {
+        display: flex;
+        gap: 0.5rem;
+    }
+    .btn-danger {
+        background: #000;
+        color: #fff;
+        border-color: #fff;
+    }
+    .btn-danger:hover {
+        background: #fff;
+        color: #000;
+    }
+    .station-row {
+        border: 2px solid #fff;
+        padding: 1rem;
+        margin-bottom: 0.5rem;
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 1rem;
+        align-items: center;
+    }
+    .station-row:hover {
+        background: #111;
+    }
+    .station-details {
+        font-size: 12px;
+        color: #888;
+        margin-top: 0.25rem;
+    }
+    .check-result {
+        padding: 0.5rem;
+        margin-top: 0.5rem;
+        font-size: 12px;
+    }
+    .check-online {
+        border: 1px solid #0f0;
+        color: #0f0;
+    }
+    .check-offline {
+        border: 1px solid #f00;
+        color: #f00;
+    }
+    .badge-health-online {
+        background: #0f0;
+        color: #000;
+    }
+    .badge-health-offline {
+        background: #ff0;
+        color: #000;
+    }
+    .badge-health-dead {
+        background: #f00;
+        color: #fff;
+    }
+    .badge-recheck {
+        background: #ff0;
+        color: #000;
+        animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+    }
+    .recheck-info {
+        font-size: 11px;
+        color: #ff0;
+        margin-top: 0.25rem;
+    }
+    .cover-art {
+        width: 50px;
+        height: 50px;
+        object-fit: cover;
+        border: 1px solid #fff;
+    }
+    .station-info {
+        display: flex;
+        gap: 1rem;
+        align-items: center;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="admin-header">
+    <h1>Admin Panel</h1>
+    <div>
+        <a href="/PROM/logout" class="btn btn-secondary">Logout</a>
+    </div>
+</div>
+
+{% if message %}
+<div class="alert alert-success">
+    {{ message }}
+</div>
+{% endif %}
+
+{% if error %}
+<div class="alert alert-error">
+    {{ error }}
+</div>
+{% endif %}
+
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.total_stations }}</div>
+        <div class="stat-label">Total</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #0f0;">{{ stats.online_stations }}</div>
+        <div class="stat-label">Online</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #ff0;">{{ stats.offline_stations or 0 }}</div>
+        <div class="stat-label">Offline</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #f00;">{{ stats.dead_stations or 0 }}</div>
+        <div class="stat-label">Dead</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.tor_stations }}</div>
+        <div class="stat-label">Tor</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.i2p_stations }}</div>
+        <div class="stat-label">I2P</div>
+    </div>
+</div>
+
+{% if stats.last_health_check %}
+<p class="text-muted" style="margin-bottom: 1.5rem;">Last full check: {{ stats.last_health_check | replace('T', ' ') | replace('Z', '') }} UTC</p>
+{% endif %}
+
+<div style="margin-bottom: 1.5rem;">
+    <form method="post" action="/PROM/check-all" style="display: inline;">
+        <button type="submit" class="btn">Check All Stations</button>
+    </form>
+</div>
+
+<h2>All Stations ({{ stations|length }})</h2>
+
+{% for station in stations %}
+<div class="station-row">
+    <div class="station-info">
+        {% if station.faviconUrl %}
+        <img src="{{ station.faviconUrl }}" alt="" class="cover-art" onerror="this.style.display='none'">
+        {% endif %}
+        <div>
+            <strong>{{ station.name }}</strong>
+            <span class="badge badge-{{ station.network }}">{{ station.network }}</span>
+            {% if station.healthStatus == 'online' %}
+            <span class="badge badge-health-online">online</span>
+            {% elif station.healthStatus == 'dead' %}
+            <span class="badge badge-health-dead">dead</span>
+            {% elif station.healthStatus == 'offline' %}
+            <span class="badge badge-health-offline">offline</span>
+            {% elif station.lastCheckOk %}
+            <span class="badge badge-online">online</span>
+            {% else %}
+            <span class="badge badge-offline">offline</span>
+            {% endif %}
+            {% if station.consecutiveFailures is defined and station.consecutiveFailures > 0 and station.consecutiveFailures <= 3 %}
+            <span class="badge badge-recheck">recheck #{{ station.consecutiveFailures }}</span>
+            {% endif %}
+            <div class="station-details">
+                {{ station.genre }} | {{ station.codec or 'Unknown' }} | ID: {{ station.id[:8] }}...
+                {% if station.lastCheckTime %}| Checked: {{ station.lastCheckTime | replace('T', ' ') | replace('Z', '') }} UTC{% endif %}
+            </div>
+            {% if station.consecutiveFailures is defined and station.consecutiveFailures > 0 %}
+            <div class="recheck-info">
+                {% if station.consecutiveFailures == 1 %}
+                ⚠ Failed 1 check - will recheck in ~5 min
+                {% elif station.consecutiveFailures == 2 %}
+                ⚠ Failed 2 checks - will recheck in ~15 min
+                {% elif station.consecutiveFailures == 3 %}
+                ⚠ Failed 3 checks - will recheck in ~1 hour
+                {% else %}
+                ✗ Failed {{ station.consecutiveFailures }} checks - confirmed {{ station.healthStatus|default('offline') }}
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    <div class="admin-actions">
+        <a href="/PROM/edit/{{ station.id }}" class="btn btn-secondary" title="Edit station">Edit</a>
+        <form method="post" action="/PROM/check/{{ station.id }}" style="display: inline;">
+            <button type="submit" class="btn btn-secondary" title="Check station">Check</button>
+        </form>
+        {% if station.faviconUrl %}
+        <form method="post" action="/PROM/delete-cover/{{ station.id }}" style="display: inline;">
+            <button type="submit" class="btn btn-secondary" title="Delete cover art" onclick="return confirm('Delete cover art for {{ station.name }}?')">Del Cover</button>
+        </form>
+        {% endif %}
+        <form method="post" action="/PROM/delete/{{ station.id }}" style="display: inline;">
+            <button type="submit" class="btn btn-danger" title="Delete station" onclick="return confirm('Delete station {{ station.name }}? This cannot be undone!')">Delete</button>
+        </form>
+    </div>
+</div>
+
+{% if check_results and station.id in check_results %}
+<div class="check-result {% if check_results[station.id] %}check-online{% else %}check-offline{% endif %}">
+    Check result: {% if check_results[station.id] %}ONLINE{% else %}OFFLINE{% endif %}
+</div>
+{% endif %}
+
+{% endfor %}
+
+{% if not stations %}
+<p class="text-muted">No stations found.</p>
+{% endif %}
+
+{% endblock %}

@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+
+{% block title %}About - Radio Registry{% endblock %}
+
+{% block content %}
+<h1>About</h1>
+
+<div class="card">
+    <h2>What is this?</h2>
+    <p>
+        A directory and registry of I2P and Tor radio stations. Stations are health-checked
+        with smart scheduling: online stations every 4 hours, failed stations get escalating
+        rechecks (5min, 15min, 1hr) before being marked offline.
+    </p>
+
+    <h2>How to listen</h2>
+    <p>
+        <strong>On Android:</strong> Use any radio app that supports SOCKS5 proxy (for Tor) or
+        HTTP proxy (for I2P). Apps like Orbot or InviZible Pro can provide system-wide proxy support.
+    </p>
+    <p>
+        <strong>On Desktop:</strong> Configure your media player (VLC, mpv, etc.) to use the
+        Tor SOCKS proxy (localhost:9050) or I2P HTTP proxy (localhost:4444),
+        then open the stream URL.
+    </p>
+
+    <h2>Submit a station</h2>
+    <p>
+        Running a radio station on Tor or I2P? <a href="/submit">Submit it to the directory</a>.
+        Submissions are automatic and not reviewed before being published.
+    </p>
+
+    <h2>Cover Art</h2>
+    <p>
+        All station cover art is mirrored and hosted locally for privacy and reliability.
+        When a station is submitted with cover art, it is downloaded and served directly
+        from our servers rather than fetching from external sources.
+    </p>
+
+    <h2>API</h2>
+    <p>
+        The directory provides a JSON API for programmatic access:
+    </p>
+    <ul>
+        <li><code class="selectable-api">GET /api/stations</code> - List all stations</li>
+        <li><code class="selectable-api">GET /api/stations?network=tor</code> - Tor stations only</li>
+        <li><code class="selectable-api">GET /api/stations?network=i2p</code> - I2P stations only</li>
+        <li><code class="selectable-api">GET /api/stations?genre=electronic</code> - Filter by genre</li>
+        <li><code class="selectable-api">GET /api/stations?online_only=true</code> - Only online stations</li>
+        <li><code class="selectable-api">GET /api/stations/{id}</code> - Station details</li>
+        <li><code class="selectable-api">GET /api/stations/{id}/cover</code> - Station cover art</li>
+        <li><code class="selectable-api">GET /api/stats</code> - Directory statistics</li>
+        <li><code class="selectable-api">GET /api/genres</code> - List available genres</li>
+        <li><code class="selectable-api">GET /api/health</code> - API health check</li>
+        <li><code class="selectable-api">POST /api/submit</code> - Submit a new station</li>
+    </ul>
+
+    <h3>Station Response Fields</h3>
+    <table class="mb-2">
+        <tr>
+            <td class="text-muted">healthStatus</td>
+            <td><code>online</code> | <code>offline</code> | <code>dead</code></td>
+        </tr>
+        <tr>
+            <td class="text-muted">consecutiveFailures</td>
+            <td>Number of failed checks in a row (0 when online)</td>
+        </tr>
+        <tr>
+            <td class="text-muted">lastCheckOk</td>
+            <td>Boolean - true if last check succeeded</td>
+        </tr>
+        <tr>
+            <td class="text-muted">lastCheckTime</td>
+            <td>ISO timestamp of last health check</td>
+        </tr>
+    </table>
+    <p class="text-muted" style="font-size: 12px;">
+        <strong>Health Status:</strong>
+        <span style="color: #0f0;">online</span> = last check succeeded |
+        <span style="color: #ff0;">offline</span> = failed but was online within 12 hrs |
+        <span style="color: #f00;">dead</span> = no response for 12+ hours
+    </p>
+
+    <h2>Statistics</h2>
+    <table class="mb-2">
+        <tr>
+            <td class="text-muted">Total Stations</td>
+            <td>{{ stats.total_stations }}</td>
+        </tr>
+        <tr>
+            <td class="text-muted">Online</td>
+            <td style="color: #0f0;">{{ stats.online_stations }}</td>
+        </tr>
+        <tr>
+            <td class="text-muted">Offline</td>
+            <td style="color: #ff0;">{{ stats.offline_stations or 0 }}</td>
+        </tr>
+        <tr>
+            <td class="text-muted">Dead (12+ hrs)</td>
+            <td style="color: #f00;">{{ stats.dead_stations or 0 }}</td>
+        </tr>
+        <tr>
+            <td class="text-muted">Tor Stations</td>
+            <td>{{ stats.tor_stations }}</td>
+        </tr>
+        <tr>
+            <td class="text-muted">I2P Stations</td>
+            <td>{{ stats.i2p_stations }}</td>
+        </tr>
+        <tr>
+            <td class="text-muted">Last Health Check</td>
+            <td>{{ stats.last_health_check or 'Never' }}</td>
+        </tr>
+    </table>
+
+    <h2>Questions/Problems?</h2>
+    <p>
+        Open an issue on GitHub or check the project documentation.
+    </p>
+</div>
+{% endblock %}

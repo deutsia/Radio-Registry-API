@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+
+{% block title %}Admin Login - Radio Registry{% endblock %}
+
+{% block content %}
+<h1>Admin Login</h1>
+
+{% if error %}
+<div class="alert alert-error">
+    {{ error }}
+</div>
+{% endif %}
+
+<form method="post">
+    <div class="form-group">
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" required autofocus>
+    </div>
+    <button type="submit">Login</button>
+</form>
+{% endblock %}

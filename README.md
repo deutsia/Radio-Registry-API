@@ -25,6 +25,10 @@ A privacy-focused radio station directory designed for Tor and I2P networks. Thi
 - **aiohttp** - Async HTTP client with SOCKS proxy support
 - **slowapi** - Rate limiting
 
+## Admin Dashboard
+
+Screenshot preview of the web-based admin panel can be found in /static/covers. Cover art is not available for clearnet mirrors, as all the cover art is hosted over Tor. The rest of the UI can be explored at the Radio Registry website: https://api.deutsia.com
+
 ## Installation
 
 ### Prerequisites

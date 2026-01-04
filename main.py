@@ -12,8 +12,9 @@ import time
 
 from fastapi import FastAPI, HTTPException, Query, Request, Form, Cookie
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.templating import Jinja2Templates
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
@@ -71,6 +72,28 @@ app.add_middleware(
 
 # Templates for server-rendered HTML
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+
+class BlockCoverArtOnClearnetMiddleware(BaseHTTPMiddleware):
+    """Block access to /static/covers/ on clearnet to prevent cover art mirroring"""
+
+    async def dispatch(self, request: Request, call_next):
+        # Check if request is for cover art
+        if request.url.path.startswith("/static/covers/"):
+            # Detect network from Host header
+            host = request.headers.get("host", "").lower()
+            is_onion = ".onion" in host
+            is_i2p = ".i2p" in host
+
+            # Block on clearnet (not onion and not i2p)
+            if not is_onion and not is_i2p:
+                return Response(status_code=404, content="Not Found")
+
+        return await call_next(request)
+
+
+# Add middleware to block cover art on clearnet
+app.add_middleware(BlockCoverArtOnClearnetMiddleware)
 
 # Mount static files if directory exists
 if STATIC_DIR.exists():

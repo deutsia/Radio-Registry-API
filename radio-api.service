@@ -1,0 +1,36 @@
+# Systemd service file for Radio Registry API
+#
+# Installation:
+#   1. Copy this file to /etc/systemd/system/radio-api.service
+#   2. Edit the file and replace the following placeholders:
+#      - YOUR_USERNAME: your Linux username
+#      - /path/to/Radio-Registry-API: full path to where you cloned the repo
+#   3. Run: sudo systemctl daemon-reload
+#   4. Run: sudo systemctl enable radio-api
+#   5. Run: sudo systemctl start radio-api
+
+[Unit]
+Description=Tor/I2P Radio Directory API
+After=network.target
+
+[Service]
+Type=simple
+User=YOUR_USERNAME
+WorkingDirectory=/path/to/Radio-Registry-API
+ExecStart=/path/to/Radio-Registry-API/venv/bin/uvicorn main:app --host 127.0.0.1 --port 8080
+Restart=always
+RestartSec=5
+
+# Resource limits
+MemoryMax=200M
+CPUQuota=50%
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/path/to/Radio-Registry-API
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

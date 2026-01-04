@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+
+{% block title %}Submit Station - Radio Registry{% endblock %}
+
+{% block content %}
+<h1>Submit a Station</h1>
+
+<p class="mb-2">Add a new Tor or I2P radio station to the directory. Streams are verified automatically.</p>
+
+{% if success %}
+<div class="alert alert-success">
+    Station verified and added to the directory.
+</div>
+<p><a href="/submit">Submit another station</a> or <a href="/">browse the directory</a>.</p>
+{% else %}
+
+{% if error %}
+<div class="alert alert-error">
+    <strong>Error:</strong> {{ error }}
+</div>
+{% endif %}
+
+<form method="post" class="card">
+    <div class="form-group">
+        <label for="name">Station Name *</label>
+        <input type="text" id="name" name="name" required 
+               value="{{ form_name or '' }}"
+               placeholder="My Radio Station">
+    </div>
+    
+    <div class="form-group">
+        <label for="stream_url">Stream URL *</label>
+        <input type="url" id="stream_url" name="stream_url" required
+               value="{{ form_url or '' }}"
+               placeholder="http://example.onion:8000/stream">
+        <small class="text-muted">Must be a .onion or .b32.i2p address</small>
+    </div>
+    
+    <div class="form-group">
+        <label for="homepage">Homepage</label>
+        <input type="url" id="homepage" name="homepage"
+               value="{{ form_homepage or '' }}"
+               placeholder="http://example.onion">
+        <small class="text-muted">Optional - station website</small>
+    </div>
+
+    <div class="form-group">
+        <label for="favicon_url">Cover Art URL</label>
+        <input type="url" id="favicon_url" name="favicon_url"
+               value="{{ form_favicon_url or '' }}"
+               placeholder="https://example.com/cover.png">
+        <small class="text-muted">Optional - All urls excepted (clearnet, i2p, .onion) and are mirrored and hosted over Tor</small>
+    </div>
+
+    <div class="form-group">
+        <label for="genre">Genre</label>
+        <input type="text" id="genre" name="genre" list="genre-list"
+               value="{{ form_genre or 'Other' }}"
+               placeholder="e.g., Rock, Jazz, Electronic...">
+        <datalist id="genre-list">
+            {% for g in genres %}
+            <option value="{{ g }}">
+            {% endfor %}
+        </datalist>
+        <small class="text-muted">Select from list or type your own</small>
+    </div>
+    
+    <div class="form-group">
+        <label for="language">Language</label>
+        <input type="text" id="language" name="language" list="language-list"
+               value="{{ form_language or 'Unknown' }}"
+               placeholder="e.g., English, Spanish, German...">
+        <datalist id="language-list">
+            {% for l in languages %}
+            <option value="{{ l }}">
+            {% endfor %}
+        </datalist>
+        <small class="text-muted">Select from list or type your own</small>
+    </div>
+
+    <div class="form-group">
+        <label for="bitrate">Bitrate (kbps)</label>
+        <input type="number" id="bitrate" name="bitrate" 
+               min="8" max="1024"
+               placeholder="128">
+    </div>
+    
+    <button type="submit">Submit Station</button>
+</form>
+{% endif %}
+{% endblock %}

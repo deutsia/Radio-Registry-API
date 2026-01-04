@@ -521,11 +521,11 @@ def verify_admin_token(token: str) -> bool:
         return False
 
 
-@app.get("/PROM", response_class=HTMLResponse)
+@app.get("/admin", response_class=HTMLResponse)
 async def admin_login_page(request: Request, admin_token: Optional[str] = Cookie(None)):
     """Admin login page"""
     if verify_admin_token(admin_token):
-        return RedirectResponse("/PROM/dashboard", status_code=302)
+        return RedirectResponse("/admin/dashboard", status_code=302)
     return templates.TemplateResponse("admin_login.html", {
         "request": request,
         "error": None,
@@ -533,11 +533,11 @@ async def admin_login_page(request: Request, admin_token: Optional[str] = Cookie
     })
 
 
-@app.post("/PROM", response_class=HTMLResponse)
+@app.post("/admin", response_class=HTMLResponse)
 async def admin_login(request: Request, password: str = Form(...)):
     """Handle admin login"""
     if password == ADMIN_PASSWORD:
-        response = RedirectResponse("/PROM/dashboard", status_code=302)
+        response = RedirectResponse("/admin/dashboard", status_code=302)
         response.set_cookie(
             key="admin_token",
             value=create_admin_token(),
@@ -553,15 +553,15 @@ async def admin_login(request: Request, password: str = Form(...)):
     })
 
 
-@app.get("/PROM/logout")
+@app.get("/admin/logout")
 async def admin_logout():
     """Logout from admin panel"""
-    response = RedirectResponse("/PROM", status_code=302)
+    response = RedirectResponse("/admin", status_code=302)
     response.delete_cookie("admin_token")
     return response
 
 
-@app.get("/PROM/dashboard", response_class=HTMLResponse)
+@app.get("/admin/dashboard", response_class=HTMLResponse)
 async def admin_dashboard(
     request: Request,
     admin_token: Optional[str] = Cookie(None),
@@ -570,7 +570,7 @@ async def admin_dashboard(
 ):
     """Admin dashboard"""
     if not verify_admin_token(admin_token):
-        return RedirectResponse("/PROM", status_code=302)
+        return RedirectResponse("/admin", status_code=302)
 
     # Get all stations (not just approved)
     stations = db.get_stations(status="approved", limit=500)
@@ -587,18 +587,18 @@ async def admin_dashboard(
     })
 
 
-@app.post("/PROM/delete/{station_id}")
+@app.post("/admin/delete/{station_id}")
 async def admin_delete_station(
     station_id: str,
     admin_token: Optional[str] = Cookie(None)
 ):
     """Delete a station"""
     if not verify_admin_token(admin_token):
-        return RedirectResponse("/PROM", status_code=302)
+        return RedirectResponse("/admin", status_code=302)
 
     station = db.get_station_by_id(station_id)
     if not station:
-        return RedirectResponse("/PROM/dashboard?error=Station+not+found", status_code=302)
+        return RedirectResponse("/admin/dashboard?error=Station+not+found", status_code=302)
 
     # Delete cover art file if exists
     if station.get("faviconUrl"):
@@ -614,21 +614,21 @@ async def admin_delete_station(
             pass
 
     db.delete_station(station_id)
-    return RedirectResponse(f"/PROM/dashboard?message=Station+deleted", status_code=302)
+    return RedirectResponse(f"/admin/dashboard?message=Station+deleted", status_code=302)
 
 
-@app.post("/PROM/delete-cover/{station_id}")
+@app.post("/admin/delete-cover/{station_id}")
 async def admin_delete_cover(
     station_id: str,
     admin_token: Optional[str] = Cookie(None)
 ):
     """Delete cover art for a station"""
     if not verify_admin_token(admin_token):
-        return RedirectResponse("/PROM", status_code=302)
+        return RedirectResponse("/admin", status_code=302)
 
     station = db.get_station_by_id(station_id)
     if not station:
-        return RedirectResponse("/PROM/dashboard?error=Station+not+found", status_code=302)
+        return RedirectResponse("/admin/dashboard?error=Station+not+found", status_code=302)
 
     if station.get("faviconUrl"):
         try:
@@ -642,10 +642,10 @@ async def admin_delete_cover(
             pass
 
     db.update_station(station_id, favicon_url=None)
-    return RedirectResponse(f"/PROM/dashboard?message=Cover+art+deleted", status_code=302)
+    return RedirectResponse(f"/admin/dashboard?message=Cover+art+deleted", status_code=302)
 
 
-@app.get("/PROM/edit/{station_id}", response_class=HTMLResponse)
+@app.get("/admin/edit/{station_id}", response_class=HTMLResponse)
 async def admin_edit_page(
     request: Request,
     station_id: str,
@@ -653,11 +653,11 @@ async def admin_edit_page(
 ):
     """Admin station edit page"""
     if not verify_admin_token(admin_token):
-        return RedirectResponse("/PROM", status_code=302)
+        return RedirectResponse("/admin", status_code=302)
 
     station = db.get_station_by_id(station_id)
     if not station:
-        return RedirectResponse("/PROM/dashboard?error=Station+not+found", status_code=302)
+        return RedirectResponse("/admin/dashboard?error=Station+not+found", status_code=302)
 
     from config import DEFAULT_GENRES, DEFAULT_LANGUAGES
     return templates.TemplateResponse("admin_edit.html", {
@@ -671,7 +671,7 @@ async def admin_edit_page(
     })
 
 
-@app.post("/PROM/edit/{station_id}", response_class=HTMLResponse)
+@app.post("/admin/edit/{station_id}", response_class=HTMLResponse)
 async def admin_edit_station(
     request: Request,
     station_id: str,
@@ -686,11 +686,11 @@ async def admin_edit_station(
 ):
     """Handle admin station edit"""
     if not verify_admin_token(admin_token):
-        return RedirectResponse("/PROM", status_code=302)
+        return RedirectResponse("/admin", status_code=302)
 
     station = db.get_station_by_id(station_id)
     if not station:
-        return RedirectResponse("/PROM/dashboard?error=Station+not+found", status_code=302)
+        return RedirectResponse("/admin/dashboard?error=Station+not+found", status_code=302)
 
     try:
         # Update basic fields
@@ -724,7 +724,7 @@ async def admin_edit_station(
                 db.update_station(station_id, favicon_url=cover_result.tor_url)
             else:
                 return RedirectResponse(
-                    f"/PROM/edit/{station_id}?error=Failed+to+download+cover+art",
+                    f"/admin/edit/{station_id}?error=Failed+to+download+cover+art",
                     status_code=302
                 )
         elif not new_favicon_url and old_favicon_url:
@@ -740,28 +740,28 @@ async def admin_edit_station(
             db.update_station(station_id, favicon_url=None)
 
         return RedirectResponse(
-            f"/PROM/edit/{station_id}?message=Station+updated+successfully",
+            f"/admin/edit/{station_id}?message=Station+updated+successfully",
             status_code=302
         )
     except Exception as e:
         return RedirectResponse(
-            f"/PROM/edit/{station_id}?error=Failed+to+update:+{type(e).__name__}",
+            f"/admin/edit/{station_id}?error=Failed+to+update:+{type(e).__name__}",
             status_code=302
         )
 
 
-@app.post("/PROM/check/{station_id}")
+@app.post("/admin/check/{station_id}")
 async def admin_check_station(
     station_id: str,
     admin_token: Optional[str] = Cookie(None)
 ):
     """Check a single station"""
     if not verify_admin_token(admin_token):
-        return RedirectResponse("/PROM", status_code=302)
+        return RedirectResponse("/admin", status_code=302)
 
     station = db.get_station_by_id(station_id)
     if not station:
-        return RedirectResponse("/PROM/dashboard?error=Station+not+found", status_code=302)
+        return RedirectResponse("/admin/dashboard?error=Station+not+found", status_code=302)
 
     # Perform health check
     try:
@@ -769,19 +769,19 @@ async def admin_check_station(
         is_online = validation.is_valid
         db.update_health_status(station_id, is_online=is_online)
         status_msg = "ONLINE" if is_online else "OFFLINE"
-        return RedirectResponse(f"/PROM/dashboard?message={status_msg}", status_code=302)
+        return RedirectResponse(f"/admin/dashboard?message={status_msg}", status_code=302)
     except Exception as e:
         db.update_health_status(station_id, is_online=False)
-        return RedirectResponse(f"/PROM/dashboard?error=Check+failed:+{type(e).__name__}", status_code=302)
+        return RedirectResponse(f"/admin/dashboard?error=Check+failed:+{type(e).__name__}", status_code=302)
 
 
-@app.post("/PROM/check-all")
+@app.post("/admin/check-all")
 async def admin_check_all_stations(
     admin_token: Optional[str] = Cookie(None)
 ):
     """Check all stations"""
     if not verify_admin_token(admin_token):
-        return RedirectResponse("/PROM", status_code=302)
+        return RedirectResponse("/admin", status_code=302)
 
     stations = db.get_stations_for_health_check()
     online_count = 0
@@ -802,7 +802,7 @@ async def admin_check_all_stations(
 
     db.set_last_health_check_time()
     return RedirectResponse(
-        f"/PROM/dashboard?message=Checked+{len(stations)}+stations:+{online_count}+online,+{offline_count}+offline",
+        f"/admin/dashboard?message=Checked+{len(stations)}+stations:+{online_count}+online,+{offline_count}+offline",
         status_code=302
     )
 

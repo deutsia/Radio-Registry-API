@@ -13,7 +13,7 @@ A privacy-focused radio station directory designed for Tor and I2P networks. Thi
 - **Admin CLI** - Command-line tools for bulk operations (import, export, approve, reject)
 - **Network-Aware Routing** - Automatic proxy routing through Tor SOCKS5 or I2P HTTP
 - **Rate Limiting** - API protection with slowapi (60/min for listings, 5/min for submissions)
-- **No JavaScript Required** - Server-rendered HTML works in minimal browsers
+- **No JavaScript** 
 
 ## Technology Stack
 
@@ -173,8 +173,8 @@ The server-rendered HTML interface is accessible at:
 | `/station/{id}` | Station detail page |
 | `/submit` | Station submission form |
 | `/about` | About page |
-| `/PROM` | Admin login |
-| `/PROM/dashboard` | Admin dashboard |
+| `/admin` | Admin login |
+| `/admin/dashboard` | Admin dashboard |
 
 ## Admin CLI
 

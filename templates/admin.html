@@ -97,7 +97,7 @@
 <div class="admin-header">
     <h1>Admin Panel</h1>
     <div>
-        <a href="/PROM/logout" class="btn btn-secondary">Logout</a>
+        <a href="/admin/logout" class="btn btn-secondary">Logout</a>
     </div>
 </div>
 
@@ -145,7 +145,7 @@
 {% endif %}
 
 <div style="margin-bottom: 1.5rem;">
-    <form method="post" action="/PROM/check-all" style="display: inline;">
+    <form method="post" action="/admin/check-all" style="display: inline;">
         <button type="submit" class="btn">Check All Stations</button>
     </form>
 </div>
@@ -195,16 +195,16 @@
         </div>
     </div>
     <div class="admin-actions">
-        <a href="/PROM/edit/{{ station.id }}" class="btn btn-secondary" title="Edit station">Edit</a>
-        <form method="post" action="/PROM/check/{{ station.id }}" style="display: inline;">
+        <a href="/admin/edit/{{ station.id }}" class="btn btn-secondary" title="Edit station">Edit</a>
+        <form method="post" action="/admin/check/{{ station.id }}" style="display: inline;">
             <button type="submit" class="btn btn-secondary" title="Check station">Check</button>
         </form>
         {% if station.faviconUrl %}
-        <form method="post" action="/PROM/delete-cover/{{ station.id }}" style="display: inline;">
+        <form method="post" action="/admin/delete-cover/{{ station.id }}" style="display: inline;">
             <button type="submit" class="btn btn-secondary" title="Delete cover art" onclick="return confirm('Delete cover art for {{ station.name }}?')">Del Cover</button>
         </form>
         {% endif %}
-        <form method="post" action="/PROM/delete/{{ station.id }}" style="display: inline;">
+        <form method="post" action="/admin/delete/{{ station.id }}" style="display: inline;">
             <button type="submit" class="btn btn-danger" title="Delete station" onclick="return confirm('Delete station {{ station.name }}? This cannot be undone!')">Delete</button>
         </form>
     </div>

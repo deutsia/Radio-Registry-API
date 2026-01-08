@@ -155,6 +155,22 @@ def _validate_response(status: int, headers: dict) -> StreamValidationResult:
     icy_name, icy_bitrate = _extract_icy_info(headers)
     detected_codec = _detect_codec_from_content_type(content_type)
 
+    # Check Content-Length - static files have small/fixed sizes, streams don't
+    content_length = headers.get("Content-Length", headers.get("content-length"))
+    if content_length:
+        try:
+            length = int(content_length)
+            # Reject files smaller than 50MB (likely static file, not a stream)
+            # Real streams either have no Content-Length or very large/infinite
+            if length < 50 * 1024 * 1024:  # 50MB threshold
+                return StreamValidationResult(
+                    is_valid=False,
+                    reason=f"Content-Length {length} bytes indicates static file, not a stream",
+                    content_type=content_type
+                )
+        except ValueError:
+            pass  # Invalid Content-Length, continue with other checks
+
     # IMPORTANT: Check dangerous content-types FIRST - reject regardless of ICY headers
     # This prevents spoofing by adding icy-* headers to HTML/images/etc.
     if content_type in DANGEROUS_CONTENT_TYPES:

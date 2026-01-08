@@ -10,12 +10,11 @@ TEMPLATES_DIR = BASE_DIR / "templates"
 STATIC_DIR = BASE_DIR / "static"
 COVERS_DIR = STATIC_DIR / "covers"
 
-# Tor API/file server base URL (for serving cover art)
-# Replace with your own .onion address once you've set up a Tor hidden service
+# Tor API/file server base URL (for serving cover art - you can use the same Tor url as the mirror)
 TOR_BASE_URL = "http://your-onion-address.onion"
 
 # Mirror URLs for different networks
-# Update these with your actual .onion and .i2p addresses after deployment
+# IMPORTANT: Update these with your actual .onion and .i2p addresses after deployment
 MIRRORS = {
     "tor": {
         "name": "Tor",
@@ -98,3 +97,6 @@ DEFAULT_LANGUAGES = [
 # Admin panel settings
 ADMIN_PASSWORD = "changeme"  # Change this in production!
 ADMIN_SECRET_KEY = "super-secret-key-change-me"  # For session signing
+
+# Notification settings (ntfy.sh push notifications)
+NTFY_TOPIC = "your-radio-covers"  # Your private ntfy.sh topic

@@ -12,10 +12,10 @@ class StationBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     stream_url: str = Field(..., max_length=500)
     homepage: Optional[str] = Field(None, max_length=500)
-    genre: str = Field("Other", max_length=50)
+    genre: str = Field("", max_length=200)  # Allow longer for comma-separated multi-genre
     codec: Optional[str] = Field(None, max_length=20)
     bitrate: Optional[int] = Field(None, ge=8, le=1024)
-    language: str = Field("Unknown", max_length=50)
+    language: str = Field("", max_length=50)
 
     @field_validator('stream_url')
     @classmethod

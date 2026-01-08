@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "Curated I2P radio stations - privacy-focused streams accessible via I2P network",
+  "description": "Example list of I2P stations for inital stream validation. I cannot guarantee if these are all online Check my live Production instance of this project at https://api.deutsia.com",
   "stations": [
     {
       "name": "Arav's Dwelling",

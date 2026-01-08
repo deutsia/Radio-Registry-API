@@ -56,6 +56,7 @@
 
 <div class="card">
     <form method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <div class="field-group">
             <div class="field-label">Station ID</div>
             <div class="readonly-field">{{ station.id }}</div>
@@ -84,7 +85,7 @@
         </div>
 
         <div class="form-group">
-            <label for="genre">Genre</label>
+            <label for="genre">Genre(s)</label>
             <input type="text" id="genre" name="genre" list="genre-list"
                    value="{{ station.genre }}"
                    placeholder="e.g., Rock, Jazz, Electronic...">
@@ -93,6 +94,7 @@
                 <option value="{{ g }}">
                 {% endfor %}
             </datalist>
+            <small class="text-muted">Separate multiple genres with commas</small>
         </div>
 
         <div class="form-group">
@@ -134,10 +136,15 @@
             <input type="url" id="favicon_url" name="favicon_url"
                    value="{{ station.faviconUrl or '' }}"
                    placeholder="https://example.com/cover.png">
-            <small class="text-muted">Enter a new URL to replace existing cover art</small>
-            {% if station.faviconUrl %}
+            <small class="text-muted">Enter a new URL to replace existing cover art. New covers require approval.</small>
+            {% if station.faviconUrl and current_network != "clearnet" %}
             <div>
                 <img src="{{ station.faviconUrl }}" alt="Current cover" class="cover-preview" onerror="this.style.display='none'">
+            </div>
+            {% elif pending_cover %}
+            <div style="margin-top: 0.5rem; padding: 0.5rem; border: 1px solid #ff0; color: #ff0;">
+                Cover pending approval (submitted {{ pending_cover.submitted_at_formatted }})
+                <a href="/admin/covers" style="color: #0f0;">&rarr; Review Queue</a>
             </div>
             {% endif %}
         </div>

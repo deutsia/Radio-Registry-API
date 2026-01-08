@@ -2,18 +2,21 @@
 
 A privacy-focused radio station directory designed for Tor and I2P networks. This FastAPI application provides both a JSON API and a server-rendered HTML interface for discovering, submitting, and managing radio stations accessible through anonymous networks.
 
+**This is the standard version** - cover art URLs are submitted for manual review and embededd directly from their original sources for review. No automatic downloading or local mirroring of cover art without manual review.
+
+> **Note:** If you need automatic cover art mirroring with NSFW detection, see the automatic mirroring release instead.
+
 ## Features
 
 - **Radio Station Directory** - Browse and search stations by network (Tor/I2P), genre, and online status
 - **Station Submission** - Submit new stations with automatic stream validation and approval
 - **Stream Validation** - Validates that URLs point to actual audio streams (not HTML, images, etc.)
 - **Health Monitoring** - Periodic checks to track station online/offline status
-- **Cover Art Mirroring** - Downloads and hosts all cover art locally, serving via Tor-accessible URLs for privacy
 - **Admin Dashboard** - Web-based admin panel for station moderation
 - **Admin CLI** - Command-line tools for bulk operations (import, export, approve, reject)
 - **Network-Aware Routing** - Automatic proxy routing through Tor SOCKS5 or I2P HTTP
 - **Rate Limiting** - API protection with slowapi (60/min for listings, 5/min for submissions)
-- **No JavaScript** 
+- **No JavaScript** - (Optional minimal JS in the Admin Panel, can be stripped in the backend)
 
 ## Technology Stack
 
@@ -24,10 +27,7 @@ A privacy-focused radio station directory designed for Tor and I2P networks. Thi
 - **Jinja2** - HTML templating
 - **aiohttp** - Async HTTP client with SOCKS proxy support
 - **slowapi** - Rate limiting
-
-## Admin Dashboard
-
-Screenshot preview of the web-based admin panel can be found in /static/covers. Cover art is not available for clearnet mirrors, as all the cover art is hosted over Tor. The rest of the UI can be explored at the Radio Registry website: https://api.deutsia.com
+- **ntfy.sh** - Push notifications for admin alerts (cover art review)
 
 ## Installation
 
@@ -87,7 +87,7 @@ uvicorn main:app --host 127.0.0.1 --port 8080
 |--------|----------|-------------|------------|
 | GET | `/api/stations` | List approved stations (paginated) | 60/min |
 | GET | `/api/stations/{id}` | Get station details | - |
-| GET | `/api/stations/{id}/cover` | Get station cover art | - |
+| GET | `/api/stations/{id}/cover` | Get station  | - |
 | POST | `/api/submit` | Submit a new station | 5/min |
 | GET | `/api/stats` | Get directory statistics | - |
 | GET | `/api/genres` | List available genres | - |
@@ -260,6 +260,63 @@ If a station remains unreachable for 12+ hours, it's marked as **dead**.
 
 This prevents reliable stations from appearing offline due to temporary network issues on Tor/I2P.
 
+## Customizations
+
+All major settings can be customized in `config.py`. Here's a complete reference:
+
+### Health Check Settings
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `HEALTH_CHECK_TIMEOUT` | 30 | Seconds to wait for a station to respond before marking as failed |
+| `HEALTH_CHECK_INTERVAL_HOURS` | 4 | Hours between regular health checks for online stations |
+| `RECHECK_INTERVALS_MINUTES` | [5, 15, 60] | Escalating recheck intervals (in minutes) for failed stations |
+| `DEAD_THRESHOLD_HOURS` | 12 | Hours without response before a station is marked "dead" |
+
+**Example: Faster health checks (hourly)**
+```python
+HEALTH_CHECK_INTERVAL_HOURS = 1  # Check online stations every hour instead of 4
+HEALTH_CHECK_TIMEOUT = 20  # Shorter timeout for faster checks
+```
+
+**Example: More aggressive failure detection**
+```python
+RECHECK_INTERVALS_MINUTES = [2, 5, 15]  # Faster escalation: 2min, 5min, 15min
+DEAD_THRESHOLD_HOURS = 6  # Mark dead after 6 hours instead of 12
+```
+
+**Example: More lenient (for unreliable networks)**
+```python
+RECHECK_INTERVALS_MINUTES = [10, 30, 120]  # Slower escalation: 10min, 30min, 2hr
+DEAD_THRESHOLD_HOURS = 24  # Wait 24 hours before marking dead
+```
+
+### Server Settings
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `HOST` | "127.0.0.1" | Address to bind the server to |
+| `PORT` | 8080 | Port to run the server on |
+| `TOR_SOCKS_PROXY` | "socks5://127.0.0.1:9050" | Tor SOCKS5 proxy for validating .onion streams |
+| `I2P_HTTP_PROXY` | "http://127.0.0.1:4444" | I2P HTTP proxy for validating .i2p streams |
+
+### API Settings
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `DEFAULT_PAGE_SIZE` | 50 | Default number of stations per page |
+| `MAX_PAGE_SIZE` | 200 | Maximum stations per page (prevents abuse) |
+| `CORS_ORIGINS` | localhost | Allowed CORS origins for API access |
+
+### Content Settings
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `MAX_NAME_LENGTH` | 100 | Maximum characters for station names |
+| `MAX_URL_LENGTH` | 500 | Maximum characters for URLs |
+| `DEFAULT_GENRES` | [list] | Available genre options for submissions |
+| `DEFAULT_LANGUAGES` | [list] | Available language options |
+
 ### Configuration
 
 In `config.py`:
@@ -312,6 +369,39 @@ Health check complete
   Recovered: 1 (were offline, now online)
 ============================================================
 ```
+
+## Pre-Deployment Checklist
+
+Before deploying to production, complete these steps:
+
+### Security Configuration
+
+- [ ] **Change admin password** - Update `ADMIN_PASSWORD` in `config.py` to a strong, unique password
+- [ ] **Generate secret key** - Replace `ADMIN_SECRET_KEY` with a secure random value:
+  ```bash
+  python -c "import secrets; print(secrets.token_hex(32))"
+  ```
+- [ ] **Review CORS origins** - Update `CORS_ORIGINS` to only allow your frontend domains
+
+### Service URLs
+
+- [ ] **Set Tor address** - Update `TOR_BASE_URL` and `MIRRORS["tor"]` with your .onion address
+- [ ] **Set I2P address** (if using) - Update `MIRRORS["i2p"]` with your .b32.i2p address
+- [ ] **Set clearnet URL** (if using) - Uncomment and configure `MIRRORS["clearnet"]`
+
+### Network & Proxy
+
+- [ ] **Verify Tor proxy** - Ensure Tor is running and `TOR_SOCKS_PROXY` points to correct address
+- [ ] **Verify I2P proxy** (if using) - Ensure I2P router is running and `I2P_HTTP_PROXY` is correct
+- [ ] **Configure firewall** - Block direct access to port 8080 from public networks
+
+### Final Steps
+
+- [ ] **Test stream validation** - Verify the API can reach Tor/I2P streams through configured proxies
+- [ ] **Set up health checker** - Configure cron job for `checker.py`
+- [ ] **Enable systemd service** - Install and enable the service file
+
+---
 
 ## Production Deployment
 
@@ -367,7 +457,6 @@ server {
 ├── models.py            # Pydantic models
 ├── config.py            # Configuration settings
 ├── stream_validator.py  # Audio stream validation
-├── cover_downloader.py  # Cover art downloading
 ├── checker.py           # Health check script
 ├── admin.py             # CLI admin tool
 ├── requirements.txt     # Python dependencies
@@ -385,7 +474,6 @@ server {
 │   ├── 404.html
 │   └── 500.html
 └── static/              # Static files
-    └── covers/          # Cached cover art
 ```
 
 ## Network Configuration
@@ -420,16 +508,83 @@ java -jar i2pinstall.jar
 curl --proxy http://127.0.0.1:4444 http://i2p-projekt.i2p
 ```
 
-## Deploying Your Own Mirrors
+## Deploying Your Own Instance
 
-Once deployed, configure your mirrors in `config.py`. Example:
+### Configuration
 
-| Network | URL | Notes |
-|---------|-----|-------|
-| Tor | `http://your-onion-address.onion` | Use [OnionBalance](https://gitlab.torproject.org/tpo/onion-services/onionbalance/) if your service needs 24/7 Tor uptime |
-| I2P | `http://your-i2p-address.b32.i2p` | |
-| Clearnet | `https://your-domain.com` | Optional |
+After installation, you **must** configure `config.py`:
 
+1. **Change default credentials** (CRITICAL for security):
+```python
+ADMIN_PASSWORD = "your-secure-password-here"
+ADMIN_SECRET_KEY = "your-random-secret-key-here"  # Use secrets.token_hex(32)
+```
+
+2. **Set your service URLs:**
+```python
+MIRRORS = {
+    "tor": {
+        "name": "Tor",
+        "url": "http://your-onion-address.onion",
+        "host": "your-onion-address.onion",
+    },
+    "i2p": {
+        "name": "I2P",
+        "url": "http://your-i2p-address.b32.i2p",
+        "host": "your-i2p-address.b32.i2p",
+    },
+    # Clearnet mirror (optional):
+    # "clearnet": {
+    #     "name": "Clearnet",
+    #     "url": "https://your-domain.com",
+    #     "host": "your-domain.com",
+    # },
+}
+```
+
+### Setting Up Tor Hidden Service
+
+1. Edit `/etc/tor/torrc`:
+```
+HiddenServiceDir /var/lib/tor/radio-registry/
+HiddenServicePort 80 127.0.0.1:8080
+```
+
+2. Restart Tor:
+```bash
+sudo systemctl restart tor
+```
+
+3. Get your .onion address:
+```bash
+sudo cat /var/lib/tor/radio-registry/hostname
+```
+
+### Setting Up I2P Tunnel (Optional)
+
+1. Install I2P and start the router
+2. Configure an I2P server tunnel pointing to `127.0.0.1:8080`
+3. Get your `.b32.i2p` address from the I2P router console
+4. Update `MIRRORS` in `config.py` with your .i2p address
+
+### Push Notifications with ntfy
+
+The API supports push notifications via [ntfy.sh](https://ntfy.sh) to alert admins when  needs review.
+
+**Setup:**
+
+1. Choose a unique, private topic name (e.g., `my-radio-covers-abc123`)
+2. Configure in `config.py`:
+```python
+NTFY_TOPIC = "my-radio-covers-abc123"
+```
+
+3. Subscribe to your topic:
+   - **Web:** Visit `https://ntfy.sh/my-radio-covers-abc123`
+   - **Mobile:** Install the ntfy app and subscribe to your topic
+   - **Desktop:** Use the PWA or CLI tool
+
+Notifications are sent automatically when new  is submitted and needs approval.
 
 ## Supported Formats
 
@@ -447,28 +602,9 @@ Once deployed, configure your mirrors in `config.py`. Example:
 - HLS (HTTP Live Streaming / m3u8 playlists)
 - DASH (Dynamic Adaptive Streaming)
 
-### Cover Art
-- JPEG
-- PNG
-- GIF
-- WebP
-- SVG
+## 
 
-## Cover Art Mirroring
-
-To protect user privacy, all cover art is downloaded and hosted locally rather than loading from external sources. When a station is submitted with a cover art URL:
-
-1. The image is downloaded through Tor (even for clearnet URLs)
-2. Saved locally to `static/covers/` with a hashed filename
-3. Served via the Tor hidden service URL
-
-This prevents external tracking and ensures cover art works reliably over Tor/I2P. Cover art is limited to 8MB per image.
-
-Configuration in `config.py`:
-```python
-# Base URL for Tor-accessible cover art
-TOR_BASE_URL = "http://your-onion-address.onion"
-```
+Cover art URLs submitted with stations are externally embedded for manual review with css blur and a JS toggle. While this version does download and mirror cover art locally, **it is only after manual review.**
 
 ## Rate Limits
 
@@ -478,13 +614,58 @@ TOR_BASE_URL = "http://your-onion-address.onion"
 | `/api/submit` | 5 requests/minute |
 | Other endpoints | No limit |
 
+## Versions
+
+This project has multiple versions available:
+
+- **This version (standard):** No automatic cover art mirroring - Manual review with external embedding + blur. 
+- **Automatic mirroring version:** Full automatic mirroring with cover art downloading and NSFW detection (requires Torch/ML dependencies)
+
+Choose the version that best fits your use case and resources.
+
+## Security Considerations
+
+- **Never expose port 8080 to the public internet** - only access via Tor/I2P
+- **Change default passwords immediately** after installation
+- **Enable 2FA** for admin panel access
+- **Run as unprivileged user** with systemd service
+- **Regular updates** - keep dependencies updated for security patches
+- **Backup your database** regularly (`stations.db`)
+
 ## Contributing
 
+Contributions are welcome! To contribute:
+
 1. Fork the repository
-2. Create a feature branch
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
 3. Make your changes
-4. Submit a pull request
+4. Test thoroughly
+5. Commit with clear messages
+6. Submit a pull request
+
+Please ensure:
+- Code follows existing style
+- No hardcoded credentials or personal info
+- Changes are well-documented
+- Tests pass (if applicable)
+
+## Support
+
+- **Issues:** Report bugs or request features via GitHub Issues
+- **Documentation:** See `/about` page for setup help
+- **Security:** Report security issues privately via GitHub Security Advisories
 
 ## License
 
 This project is licensed under the Apache License 2.0. See [LICENSE](LICENSE) for details.
+
+You are free to:
+- Use commercially
+- Modify
+- Distribute
+- Use privately
+
+Under the conditions:
+- Include original license and copyright
+- State changes made
+- Include NOTICE file if present

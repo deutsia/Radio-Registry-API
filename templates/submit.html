@@ -21,6 +21,7 @@
 {% endif %}
 
 <form method="post" class="card">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <div class="form-group">
         <label for="name">Station Name *</label>
         <input type="text" id="name" name="name" required 
@@ -53,22 +54,22 @@
     </div>
 
     <div class="form-group">
-        <label for="genre">Genre</label>
+        <label for="genre">Genre(s)</label>
         <input type="text" id="genre" name="genre" list="genre-list"
-               value="{{ form_genre or 'Other' }}"
+               value="{{ form_genre or '' }}"
                placeholder="e.g., Rock, Jazz, Electronic...">
         <datalist id="genre-list">
             {% for g in genres %}
             <option value="{{ g }}">
             {% endfor %}
         </datalist>
-        <small class="text-muted">Select from list or type your own</small>
+        <small class="text-muted">Select from list or type your own. Separate multiple genres with commas.</small>
     </div>
-    
+
     <div class="form-group">
         <label for="language">Language</label>
         <input type="text" id="language" name="language" list="language-list"
-               value="{{ form_language or 'Unknown' }}"
+               value="{{ form_language or '' }}"
                placeholder="e.g., English, Spanish, German...">
         <datalist id="language-list">
             {% for l in languages %}

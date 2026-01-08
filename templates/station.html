@@ -44,11 +44,19 @@
         {% endif %}
         <tr>
             <td class="text-muted">Genre</td>
-            <td>{{ station.genre }}</td>
+            <td>
+                {% if station.genre %}
+                {% for g in station.genre.split(',') %}
+                <span class="badge badge-genre">{{ g.strip() }}</span>
+                {% endfor %}
+                {% else %}
+                <span class="text-muted">Not specified</span>
+                {% endif %}
+            </td>
         </tr>
         <tr>
             <td class="text-muted">Language</td>
-            <td>{{ station.language or 'Unknown' }}</td>
+            <td>{{ station.language if station.language else 'Not specified' }}</td>
         </tr>
         <tr>
             <td class="text-muted">Codec</td>

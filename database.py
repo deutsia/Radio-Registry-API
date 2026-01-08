@@ -110,6 +110,20 @@ def init_db():
                 key TEXT PRIMARY KEY,
                 value TEXT
             );
+
+            -- Cover approval queue for human-in-the-loop review
+            CREATE TABLE IF NOT EXISTS cover_approvals (
+                id TEXT PRIMARY KEY,
+                station_id TEXT NOT NULL,
+                cover_url TEXT NOT NULL,
+                status TEXT DEFAULT 'pending',
+                submitted_at INTEGER NOT NULL,
+                reviewed_at INTEGER,
+                FOREIGN KEY (station_id) REFERENCES stations(id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_cover_approvals_status ON cover_approvals(status);
+            CREATE INDEX IF NOT EXISTS idx_cover_approvals_station ON cover_approvals(station_id);
         """)
         # Run migrations for existing databases
         _migrate_health_fields(conn)
@@ -169,21 +183,27 @@ def _compute_health_status(d: dict) -> str:
 def station_to_response(row: sqlite3.Row) -> dict:
     """Convert database row to API response format"""
     d = _row_to_dict(row)
+    check_count = d.get("check_count") or 0
+    check_ok_count = d.get("check_ok_count") or 0
+    uptime_pct = round((check_ok_count / check_count * 100) if check_count > 0 else 0)
     return {
         "id": d["id"],
         "name": d["name"],
         "streamUrl": d["stream_url"],
         "homepage": d["homepage"],
         "faviconUrl": d.get("favicon_url"),
-        "genre": d["genre"] or "Other",
+        "genre": d["genre"] or "",
         "codec": d["codec"],
         "bitrate": d["bitrate"],
-        "language": d.get("language") or "Unknown",
+        "language": d.get("language") or "",
         "network": d["network"],
         "lastCheckOk": bool(d["last_check_ok"]),
         "lastCheckTime": _timestamp_to_iso(d["last_check_time"]),
         "healthStatus": _compute_health_status(d),
         "consecutiveFailures": d.get("consecutive_failures") or 0,
+        "checkCount": check_count,
+        "checkOkCount": check_ok_count,
+        "uptimePercent": uptime_pct,
     }
 
 
@@ -214,9 +234,14 @@ def get_stations(
     limit: int = 50,
     offset: int = 0,
     online_only: bool = False,
-    search: Optional[str] = None
+    search: Optional[str] = None,
+    sort: str = "newest"
 ) -> list[dict]:
-    """Get stations with optional filters. Returns online stations first, then offline."""
+    """Get stations with optional filters and sorting.
+
+    Args:
+        sort: Sorting method - "newest" (default), "health", or "alphabetical"
+    """
     query = "SELECT * FROM stations WHERE status = ?"
     params: list = [status]
 
@@ -228,24 +253,36 @@ def get_stations(
         params.append(network.lower())
 
     if genre:
-        query += " AND genre = ?"
-        params.append(genre)
+        # Support multi-genre: match if the genre field contains this genre
+        # This works for both single genre and comma-separated genres
+        query += " AND (',' || genre || ',' LIKE ? ESCAPE '\\' OR genre = ?)"
+        genre_pattern = f"%,{_escape_like_pattern(genre)},%"
+        params.extend([genre_pattern, genre])
 
     if search:
         query += " AND (name LIKE ? ESCAPE '\\' OR genre LIKE ? ESCAPE '\\')"
         search_pattern = f"%{_escape_like_pattern(search)}%"
         params.extend([search_pattern, search_pattern])
 
-    # Order by health status: online first, then offline, then dead
-    # Use CASE to assign numeric priority: online=0, offline=1, dead=2, unknown=3
-    query += """ ORDER BY
-        CASE health_status
-            WHEN 'online' THEN 0
-            WHEN 'offline' THEN 1
-            WHEN 'dead' THEN 2
-            ELSE 3
-        END ASC,
-        created_at DESC, name ASC"""
+    # Apply sorting based on sort parameter
+    if sort == "health":
+        # Best health first (online first, then by uptime percentage)
+        query += """ ORDER BY
+            CASE health_status
+                WHEN 'online' THEN 0
+                WHEN 'offline' THEN 1
+                WHEN 'dead' THEN 2
+                ELSE 3
+            END ASC,
+            CASE WHEN check_count > 0 THEN (check_ok_count * 100.0 / check_count) ELSE 0 END DESC,
+            name ASC"""
+    elif sort == "alphabetical":
+        # Alphabetical by name
+        query += " ORDER BY name COLLATE NOCASE ASC"
+    else:
+        # Default: newest first
+        query += " ORDER BY created_at DESC, name ASC"
+
     query += " LIMIT ? OFFSET ?"
     params.extend([limit, offset])
 
@@ -283,10 +320,10 @@ def create_station(
     stream_url: str,
     network: str,
     homepage: Optional[str] = None,
-    genre: str = "Other",
+    genre: str = "",
     codec: Optional[str] = None,
     bitrate: Optional[int] = None,
-    language: str = "Unknown",
+    language: str = "",
     status: str = "pending"
 ) -> str:
     """Create a new station, returns the ID"""
@@ -541,6 +578,8 @@ def get_stats() -> dict:
         dead = conn.execute("SELECT COUNT(*) as c FROM stations WHERE status = 'approved' AND health_status = 'dead'").fetchone()["c"]
         tor = conn.execute("SELECT COUNT(*) as c FROM stations WHERE status = 'approved' AND network = 'tor'").fetchone()["c"]
         i2p = conn.execute("SELECT COUNT(*) as c FROM stations WHERE status = 'approved' AND network = 'i2p'").fetchone()["c"]
+        tor_online = conn.execute("SELECT COUNT(*) as c FROM stations WHERE status = 'approved' AND network = 'tor' AND health_status = 'online'").fetchone()["c"]
+        i2p_online = conn.execute("SELECT COUNT(*) as c FROM stations WHERE status = 'approved' AND network = 'i2p' AND health_status = 'online'").fetchone()["c"]
         pending = conn.execute("SELECT COUNT(*) as c FROM stations WHERE status = 'pending'").fetchone()["c"]
 
         return {
@@ -550,18 +589,30 @@ def get_stats() -> dict:
             "dead_stations": dead,
             "tor_stations": tor,
             "i2p_stations": i2p,
+            "tor_online": tor_online,
+            "i2p_online": i2p_online,
             "pending_submissions": pending,
             "last_health_check": get_last_health_check_time()
         }
 
 
 def get_genres() -> list[str]:
-    """Get list of genres with stations"""
+    """Get list of genres with stations (supports multi-genre comma-separated values)"""
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT DISTINCT genre FROM stations WHERE status = 'approved' AND genre IS NOT NULL ORDER BY genre"
+            "SELECT DISTINCT genre FROM stations WHERE status = 'approved' AND genre IS NOT NULL AND genre != ''"
         ).fetchall()
-        return [row["genre"] for row in rows]
+        # Extract individual genres from comma-separated values
+        genres_set = set()
+        for row in rows:
+            genre_value = row["genre"]
+            if genre_value:
+                # Split by comma and strip whitespace
+                for g in genre_value.split(","):
+                    g = g.strip()
+                    if g:
+                        genres_set.add(g)
+        return sorted(genres_set)
 
 
 def count_stations(
@@ -583,8 +634,10 @@ def count_stations(
         params.append(network.lower())
 
     if genre:
-        query += " AND genre = ?"
-        params.append(genre)
+        # Support multi-genre: match if the genre field contains this genre
+        query += " AND (',' || genre || ',' LIKE ? ESCAPE '\\' OR genre = ?)"
+        genre_pattern = f"%,{_escape_like_pattern(genre)},%"
+        params.extend([genre_pattern, genre])
 
     if search:
         query += " AND (name LIKE ? ESCAPE '\\' OR genre LIKE ? ESCAPE '\\')"
@@ -647,6 +700,111 @@ def get_stations_for_download(include_dead: bool = True, online_only: bool = Fal
     with get_connection() as conn:
         rows = conn.execute(query, params).fetchall()
         return [station_to_response(row) for row in rows]
+
+
+# ============== Cover Approval Operations ==============
+
+def create_cover_approval(station_id: str, cover_url: str) -> str:
+    """Create a new cover approval request, returns the ID"""
+    approval_id = str(uuid.uuid4())
+    now = _now()
+
+    with get_connection() as conn:
+        conn.execute("""
+            INSERT INTO cover_approvals (id, station_id, cover_url, status, submitted_at)
+            VALUES (?, ?, ?, 'pending', ?)
+        """, (approval_id, station_id, cover_url, now))
+
+    return approval_id
+
+
+def get_pending_cover_approvals() -> list[dict]:
+    """Get all pending cover approvals with station info"""
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT ca.*, s.name as station_name, s.network as station_network
+            FROM cover_approvals ca
+            JOIN stations s ON ca.station_id = s.id
+            WHERE ca.status = 'pending'
+            ORDER BY ca.submitted_at ASC
+        """).fetchall()
+        return [_row_to_dict(row) for row in rows]
+
+
+def get_cover_approval_by_id(approval_id: str) -> Optional[dict]:
+    """Get a single cover approval by ID"""
+    with get_connection() as conn:
+        row = conn.execute("""
+            SELECT ca.*, s.name as station_name, s.network as station_network
+            FROM cover_approvals ca
+            JOIN stations s ON ca.station_id = s.id
+            WHERE ca.id = ?
+        """, (approval_id,)).fetchone()
+        if row:
+            return _row_to_dict(row)
+        return None
+
+
+def get_pending_cover_for_station(station_id: str) -> Optional[dict]:
+    """Get pending cover approval for a specific station"""
+    with get_connection() as conn:
+        row = conn.execute("""
+            SELECT * FROM cover_approvals
+            WHERE station_id = ? AND status = 'pending'
+            ORDER BY submitted_at DESC LIMIT 1
+        """, (station_id,)).fetchone()
+        if row:
+            return _row_to_dict(row)
+        return None
+
+
+def approve_cover(approval_id: str) -> bool:
+    """Mark a cover approval as approved"""
+    now = _now()
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "UPDATE cover_approvals SET status = 'approved', reviewed_at = ? WHERE id = ? AND status = 'pending'",
+            (now, approval_id)
+        )
+        return cursor.rowcount > 0
+
+
+def reject_cover(approval_id: str) -> bool:
+    """Mark a cover approval as rejected"""
+    now = _now()
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "UPDATE cover_approvals SET status = 'rejected', reviewed_at = ? WHERE id = ? AND status = 'pending'",
+            (now, approval_id)
+        )
+        return cursor.rowcount > 0
+
+
+def delete_cover_approval(approval_id: str) -> bool:
+    """Delete a cover approval record"""
+    with get_connection() as conn:
+        cursor = conn.execute("DELETE FROM cover_approvals WHERE id = ?", (approval_id,))
+        return cursor.rowcount > 0
+
+
+def count_pending_covers() -> int:
+    """Count pending cover approvals (only those with valid stations)"""
+    with get_connection() as conn:
+        return conn.execute("""
+            SELECT COUNT(*) as c FROM cover_approvals ca
+            JOIN stations s ON ca.station_id = s.id
+            WHERE ca.status = 'pending'
+        """).fetchone()["c"]
+
+
+def cleanup_orphaned_cover_approvals() -> int:
+    """Delete cover approvals for stations that no longer exist"""
+    with get_connection() as conn:
+        cursor = conn.execute("""
+            DELETE FROM cover_approvals
+            WHERE station_id NOT IN (SELECT id FROM stations)
+        """)
+        return cursor.rowcount
 
 
 # Initialize database on module import

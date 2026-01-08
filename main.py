@@ -8,17 +8,23 @@ from typing import Optional
 from pathlib import Path
 import hashlib
 import hmac
+import secrets
 import time
+import pyotp
+import qrcode
+import qrcode.image.svg
+import io
+import base64
 
-from fastapi import FastAPI, HTTPException, Query, Request, Form, Cookie
+from fastapi import FastAPI, HTTPException, Query, Request, Form, Cookie, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
-from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.templating import Jinja2Templates
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from starlette.middleware.base import BaseHTTPMiddleware
 
 import database as db
 from models import (
@@ -33,6 +39,7 @@ from config import (
 )
 from stream_validator import validate_stream
 from cover_downloader import download_cover_art
+from csrf import generate_csrf_token, verify_csrf_token, set_csrf_cookie
 
 
 # ============== App Setup ==============
@@ -70,30 +77,62 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Templates for server-rendered HTML
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
-
-class BlockCoverArtOnClearnetMiddleware(BaseHTTPMiddleware):
-    """Block access to /static/covers/ on clearnet to prevent cover art mirroring"""
+# Security headers middleware
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Add security headers to all responses"""
 
     async def dispatch(self, request: Request, call_next):
-        # Check if request is for cover art
-        if request.url.path.startswith("/static/covers/"):
-            # Detect network from Host header
-            host = request.headers.get("host", "").lower()
-            is_onion = ".onion" in host
-            is_i2p = ".i2p" in host
+        response = await call_next(request)
 
-            # Block on clearnet (not onion and not i2p)
-            if not is_onion and not is_i2p:
-                return Response(status_code=404, content="Not Found")
+        # Content Security Policy - prevents XSS and other injection attacks
+        # Relax CSP for admin cover approval page (needs external images + inline JS)
+        if request.url.path.startswith("/admin/covers"):
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'self'; "
+                "script-src 'self' 'unsafe-inline'; "
+                "style-src 'self' 'unsafe-inline'; "
+                "img-src 'self' data: https: http:; "
+                "object-src 'none'; "
+                "base-uri 'self'; "
+                "form-action 'self'; "
+                "frame-ancestors 'none'"
+            )
+        else:
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'self'; "
+                "script-src 'self'; "
+                "style-src 'self' 'unsafe-inline'; "
+                "img-src 'self' data:; "
+                "object-src 'none'; "
+                "base-uri 'self'; "
+                "form-action 'self'; "
+                "frame-ancestors 'none'"
+            )
 
-        return await call_next(request)
+        # Prevent MIME type sniffing
+        response.headers["X-Content-Type-Options"] = "nosniff"
+
+        # Prevent clickjacking
+        response.headers["X-Frame-Options"] = "DENY"
+
+        # Control referrer information
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+
+        # Disable browser features we don't need
+        response.headers["Permissions-Policy"] = (
+            "accelerometer=(), camera=(), geolocation=(), gyroscope=(), "
+            "magnetometer=(), microphone=(), payment=(), usb=()"
+        )
+
+        return response
 
 
-# Add middleware to block cover art on clearnet
-app.add_middleware(BlockCoverArtOnClearnetMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
+
+
+# Templates for server-rendered HTML
+templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 # Mount static files if directory exists
 if STATIC_DIR.exists():
@@ -204,7 +243,7 @@ async def get_station_cover(station_id: str):
 
 @app.post("/api/submit", response_model=SubmitResponse)
 @limiter.limit("5/minute")
-async def submit_station(request: Request, station: StationSubmit):
+async def submit_station(request: Request, station: StationSubmit, background_tasks: BackgroundTasks):
     """Submit a new station - auto-approved if valid audio stream"""
     # Validate and detect network
     try:
@@ -245,12 +284,11 @@ async def submit_station(request: Request, station: StationSubmit):
             status="approved"  # Auto-approve valid streams
         )
 
-        # Download and save cover art if provided
+        # Queue cover art for human approval if provided (not downloaded yet)
         if station.favicon_url:
-            cover_result = await download_cover_art(station.favicon_url)
-            if cover_result.success:
-                # Store the Tor-accessible URL in the database
-                db.update_station(station_id, favicon_url=cover_result.tor_url)
+            from notifications import notify_cover_pending
+            db.create_cover_approval(station_id, station.favicon_url)
+            background_tasks.add_task(notify_cover_pending, station_id, station.name)
 
         # Mark as online since we just verified it
         db.update_health_status(station_id, is_online=True)
@@ -337,13 +375,19 @@ async def index_page(
     network: Optional[str] = None,
     genre: Optional[str] = None,
     q: Optional[str] = None,
+    sort: Optional[str] = None,
     page: int = Query(1, ge=1)
 ):
     """Main page - station list (no JS required)"""
     per_page = 50
     offset = (page - 1) * per_page
 
-    stations = db.get_stations(network=network, genre=genre, search=q, limit=per_page, offset=offset)
+    # Validate sort parameter
+    valid_sorts = ["newest", "health", "alphabetical"]
+    if sort not in valid_sorts:
+        sort = "newest"
+
+    stations = db.get_stations(network=network, genre=genre, search=q, sort=sort, limit=per_page, offset=offset)
     total_count = db.count_stations(network=network, genre=genre, search=q)
     total_pages = (total_count + per_page - 1) // per_page  # Ceiling division
 
@@ -358,6 +402,7 @@ async def index_page(
         "filter_network": network,
         "current_genre": genre,
         "search_query": q,
+        "current_sort": sort,
         "current_page": page,
         "total_pages": total_pages,
         **get_mirror_context(request),
@@ -382,24 +427,34 @@ async def station_page(request: Request, station_id: str):
 async def submit_page(request: Request):
     """Station submission form"""
     from config import DEFAULT_GENRES, DEFAULT_LANGUAGES
-    return templates.TemplateResponse("submit.html", {
+
+    # Generate CSRF token
+    csrf_token = generate_csrf_token()
+
+    response = templates.TemplateResponse("submit.html", {
         "request": request,
         "genres": DEFAULT_GENRES,
         "languages": DEFAULT_LANGUAGES,
+        "csrf_token": csrf_token,
         **get_mirror_context(request),
     })
+    set_csrf_cookie(response, csrf_token)
+    return response
 
 
 @app.post("/submit", response_class=HTMLResponse)
+@limiter.limit("5/minute")  # Rate limit public submissions
 async def submit_form(
     request: Request,
+    background_tasks: BackgroundTasks,
     name: str = Form(...),
     stream_url: str = Form(...),
     homepage: Optional[str] = Form(None),
     favicon_url: Optional[str] = Form(None),
-    genre: str = Form("Other"),
-    language: str = Form("Unknown"),
+    genre: str = Form(""),
+    language: str = Form(""),
     bitrate: Optional[int] = Form(None),
+    csrf_token: str = Form(...),
 ):
     """Handle form submission - auto-approved if valid audio stream"""
     from config import DEFAULT_GENRES, DEFAULT_LANGUAGES
@@ -407,65 +462,75 @@ async def submit_form(
     error = None
     success = False
 
-    try:
-        # Validate URL and detect network
-        network = detect_network(stream_url)
+    # Verify CSRF token
+    cookie_csrf = request.cookies.get('csrf_token')
+    if not cookie_csrf or not verify_csrf_token(cookie_csrf) or not hmac.compare_digest(cookie_csrf, csrf_token):
+        error = "Invalid security token. Please refresh the page and try again."
+    else:
+        try:
+            # Validate URL and detect network
+            network = detect_network(stream_url)
 
-        # Check for duplicates
-        existing = db.get_station_by_url(stream_url)
-        if existing:
-            error = f"Station with this URL already exists (status: {existing['status']})"
-        else:
-            # Validate stream - must be a real audio stream
-            validation = await validate_stream(stream_url.strip(), network)
-            if not validation.is_valid:
-                error = f"Invalid stream: {validation.reason}"
+            # Check for duplicates
+            existing = db.get_station_by_url(stream_url)
+            if existing:
+                error = f"Station with this URL already exists (status: {existing['status']})"
             else:
-                # Use detected values if not provided
-                final_bitrate = bitrate or validation.icy_bitrate
-                detected_codec = validation.detected_codec
+                # Validate stream - must be a real audio stream
+                validation = await validate_stream(stream_url.strip(), network)
+                if not validation.is_valid:
+                    error = f"Invalid stream: {validation.reason}"
+                else:
+                    # Use detected values if not provided
+                    final_bitrate = bitrate or validation.icy_bitrate
+                    detected_codec = validation.detected_codec
 
-                # Create and auto-approve station
-                station_id = db.create_station(
-                    name=name.strip(),
-                    stream_url=stream_url.strip(),
-                    network=network,
-                    homepage=homepage.strip() if homepage else None,
-                    genre=genre,
-                    language=language,
-                    bitrate=final_bitrate,
-                    codec=detected_codec,
-                    status="approved"  # Auto-approve valid streams
-                )
-                # Download and save cover art if provided
-                if favicon_url and favicon_url.strip():
-                    cover_result = await download_cover_art(favicon_url.strip())
-                    if cover_result.success:
-                        # Store the Tor-accessible URL in the database
-                        db.update_station(station_id, favicon_url=cover_result.tor_url)
-                # Mark as online since we just verified it
-                db.update_health_status(station_id, is_online=True)
-                success = True
-    except ValueError as e:
-        error = str(e)
-    except Exception as e:
-        error = f"Failed to submit: {str(e)}"
+                    # Create and auto-approve station
+                    station_id = db.create_station(
+                        name=name.strip(),
+                        stream_url=stream_url.strip(),
+                        network=network,
+                        homepage=homepage.strip() if homepage else None,
+                        genre=genre,
+                        language=language,
+                        bitrate=final_bitrate,
+                        codec=detected_codec,
+                        status="approved"  # Auto-approve valid streams
+                    )
+                    # Queue cover art for human approval if provided
+                    if favicon_url and favicon_url.strip():
+                        from notifications import notify_cover_pending
+                        db.create_cover_approval(station_id, favicon_url.strip())
+                        background_tasks.add_task(notify_cover_pending, station_id, name.strip())
+                    # Mark as online since we just verified it
+                    db.update_health_status(station_id, is_online=True)
+                    success = True
+        except ValueError as e:
+            error = str(e)
+        except Exception as e:
+            error = f"Failed to submit: {str(e)}"
 
-    return templates.TemplateResponse("submit.html", {
+    # Generate new CSRF token for the response
+    new_csrf = generate_csrf_token()
+
+    response = templates.TemplateResponse("submit.html", {
         "request": request,
         "genres": DEFAULT_GENRES,
         "languages": DEFAULT_LANGUAGES,
         "success": success,
         "error": error,
+        "csrf_token": new_csrf,
         # Preserve form values on error
         "form_name": name if error else "",
         "form_url": stream_url if error else "",
         "form_homepage": homepage if error else "",
         "form_favicon_url": favicon_url if error else "",
-        "form_genre": genre if error else "Other",
-        "form_language": language if error else "Unknown",
+        "form_genre": genre if error else "",
+        "form_language": language if error else "",
         **get_mirror_context(request),
     })
+    set_csrf_cookie(response, new_csrf)
+    return response
 
 
 @app.get("/about", response_class=HTMLResponse)
@@ -511,27 +576,74 @@ async def server_error_handler(request: Request, exc: Exception):
 
 # ============== Admin Panel ==============
 
+# 2FA Configuration - stored in memory (in production, use database)
+# Format: {"secret": "...", "enabled": True/False, "backup_codes": [...]}
+_admin_2fa_config = {
+    "secret": None,
+    "enabled": False,
+    "backup_codes": [],
+}
+
+
 def create_admin_token() -> str:
-    """Create a signed admin session token"""
+    """
+    Create a signed admin session token with improved security.
+    Format: {timestamp}.{nonce}.{signature}
+    - Uses full HMAC-SHA256 signature (not truncated)
+    - Includes random nonce for additional entropy
+    """
     timestamp = str(int(time.time()))
+    nonce = secrets.token_hex(16)  # 128 bits of randomness
+
+    # Create signature over timestamp and nonce
+    message = f"{timestamp}.{nonce}"
     signature = hmac.new(
         ADMIN_SECRET_KEY.encode(),
-        timestamp.encode(),
+        message.encode(),
         hashlib.sha256
-    ).hexdigest()[:16]
-    return f"{timestamp}.{signature}"
+    ).hexdigest()  # Full 64 character hex signature
+
+    return f"{timestamp}.{nonce}.{signature}"
 
 
 def verify_admin_token(token: str) -> bool:
-    """Verify admin session token"""
+    """Verify admin session token with improved security"""
     if not token:
         return False
+    try:
+        parts = token.split(".")
+        if len(parts) != 3:
+            # Also accept old format for backward compatibility during transition
+            if len(parts) == 2:
+                return _verify_legacy_token(token)
+            return False
+
+        timestamp, nonce, signature = parts
+
+        # Token expires after 24 hours
+        if int(time.time()) - int(timestamp) > 86400:
+            return False
+
+        # Verify signature
+        message = f"{timestamp}.{nonce}"
+        expected_sig = hmac.new(
+            ADMIN_SECRET_KEY.encode(),
+            message.encode(),
+            hashlib.sha256
+        ).hexdigest()
+
+        return hmac.compare_digest(signature, expected_sig)
+    except (ValueError, TypeError):
+        return False
+
+
+def _verify_legacy_token(token: str) -> bool:
+    """Verify old-format tokens during transition period"""
     try:
         parts = token.split(".")
         if len(parts) != 2:
             return False
         timestamp, signature = parts
-        # Token expires after 24 hours
         if int(time.time()) - int(timestamp) > 86400:
             return False
         expected_sig = hmac.new(
@@ -544,36 +656,185 @@ def verify_admin_token(token: str) -> bool:
         return False
 
 
+# ============== 2FA Functions ==============
+
+def generate_2fa_secret() -> str:
+    """Generate a new TOTP secret for 2FA"""
+    return pyotp.random_base32()
+
+
+def get_2fa_qr_code(secret: str, issuer: str = "RadioRegistry") -> str:
+    """Generate a QR code for 2FA setup as base64 SVG"""
+    totp = pyotp.TOTP(secret)
+    provisioning_uri = totp.provisioning_uri(name="admin", issuer_name=issuer)
+
+    # Generate QR code as SVG
+    qr = qrcode.QRCode(version=1, box_size=10, border=4)
+    qr.add_data(provisioning_uri)
+    qr.make(fit=True)
+
+    # Create SVG image
+    factory = qrcode.image.svg.SvgPathImage
+    img = qr.make_image(image_factory=factory)
+
+    # Convert to base64
+    buffer = io.BytesIO()
+    img.save(buffer)
+    svg_data = buffer.getvalue()
+
+    return base64.b64encode(svg_data).decode('utf-8')
+
+
+def verify_2fa_code(secret: str, code: str) -> bool:
+    """Verify a TOTP code"""
+    if not secret or not code:
+        return False
+    try:
+        totp = pyotp.TOTP(secret)
+        return totp.verify(code, valid_window=1)  # Allow 1 step tolerance
+    except Exception:
+        return False
+
+
+def generate_backup_codes(count: int = 8) -> list:
+    """Generate backup codes for 2FA recovery"""
+    return [secrets.token_hex(4).upper() for _ in range(count)]
+
+
+def verify_backup_code(code: str) -> bool:
+    """Verify and consume a backup code"""
+    code = code.upper().replace("-", "").replace(" ", "")
+    if code in _admin_2fa_config["backup_codes"]:
+        _admin_2fa_config["backup_codes"].remove(code)
+        return True
+    return False
+
+
+def is_2fa_enabled() -> bool:
+    """Check if 2FA is enabled"""
+    return _admin_2fa_config["enabled"] and _admin_2fa_config["secret"]
+
+
+def enable_2fa(secret: str) -> list:
+    """Enable 2FA with the given secret, returns backup codes"""
+    backup_codes = generate_backup_codes()
+    _admin_2fa_config["secret"] = secret
+    _admin_2fa_config["enabled"] = True
+    _admin_2fa_config["backup_codes"] = backup_codes
+    return backup_codes
+
+
+def disable_2fa() -> None:
+    """Disable 2FA"""
+    _admin_2fa_config["secret"] = None
+    _admin_2fa_config["enabled"] = False
+    _admin_2fa_config["backup_codes"] = []
+
+
+def get_2fa_secret() -> Optional[str]:
+    """Get current 2FA secret if enabled"""
+    return _admin_2fa_config["secret"] if _admin_2fa_config["enabled"] else None
+
+
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_login_page(request: Request, admin_token: Optional[str] = Cookie(None)):
     """Admin login page"""
     if verify_admin_token(admin_token):
         return RedirectResponse("/admin/dashboard", status_code=302)
-    return templates.TemplateResponse("admin_login.html", {
+
+    # Generate CSRF token
+    csrf_token = generate_csrf_token()
+
+    response = templates.TemplateResponse("admin_login.html", {
         "request": request,
         "error": None,
+        "csrf_token": csrf_token,
+        "needs_2fa": False,
         **get_mirror_context(request),
     })
+    set_csrf_cookie(response, csrf_token)
+    return response
 
 
 @app.post("/admin", response_class=HTMLResponse)
-async def admin_login(request: Request, password: str = Form(...)):
-    """Handle admin login"""
-    if password == ADMIN_PASSWORD:
-        response = RedirectResponse("/admin/dashboard", status_code=302)
-        response.set_cookie(
-            key="admin_token",
-            value=create_admin_token(),
-            httponly=True,
-            max_age=86400,  # 24 hours
-            samesite="strict"
-        )
+@limiter.limit("5/minute")  # Rate limit: 5 attempts per minute
+async def admin_login(
+    request: Request,
+    password: str = Form(...),
+    totp_code: Optional[str] = Form(None),
+    backup_code: Optional[str] = Form(None),
+    csrf_token: str = Form(...),
+):
+    """Handle admin login with rate limiting and optional 2FA"""
+    # Verify CSRF token
+    cookie_csrf = request.cookies.get('csrf_token')
+    if not cookie_csrf or not verify_csrf_token(cookie_csrf) or not hmac.compare_digest(cookie_csrf, csrf_token):
+        new_csrf = generate_csrf_token()
+        response = templates.TemplateResponse("admin_login.html", {
+            "request": request,
+            "error": "Invalid security token. Please try again.",
+            "csrf_token": new_csrf,
+            "needs_2fa": False,
+            **get_mirror_context(request),
+        })
+        set_csrf_cookie(response, new_csrf)
         return response
-    return templates.TemplateResponse("admin_login.html", {
-        "request": request,
-        "error": "Invalid password",
-        **get_mirror_context(request),
-    })
+
+    # Verify password
+    if password != ADMIN_PASSWORD:
+        new_csrf = generate_csrf_token()
+        response = templates.TemplateResponse("admin_login.html", {
+            "request": request,
+            "error": "Invalid password",
+            "csrf_token": new_csrf,
+            "needs_2fa": False,
+            **get_mirror_context(request),
+        })
+        set_csrf_cookie(response, new_csrf)
+        return response
+
+    # Check if 2FA is required
+    if is_2fa_enabled():
+        # Try backup code first
+        if backup_code and verify_backup_code(backup_code):
+            pass  # Backup code valid, proceed
+        elif totp_code:
+            if not verify_2fa_code(get_2fa_secret(), totp_code):
+                new_csrf = generate_csrf_token()
+                response = templates.TemplateResponse("admin_login.html", {
+                    "request": request,
+                    "error": "Invalid 2FA code",
+                    "csrf_token": new_csrf,
+                    "needs_2fa": True,
+                    "password_verified": True,
+                    **get_mirror_context(request),
+                })
+                set_csrf_cookie(response, new_csrf)
+                return response
+        else:
+            # Password correct but 2FA code needed
+            new_csrf = generate_csrf_token()
+            response = templates.TemplateResponse("admin_login.html", {
+                "request": request,
+                "error": None,
+                "csrf_token": new_csrf,
+                "needs_2fa": True,
+                "password_verified": True,
+                **get_mirror_context(request),
+            })
+            set_csrf_cookie(response, new_csrf)
+            return response
+
+    # Login successful
+    response = RedirectResponse("/admin/dashboard", status_code=302)
+    response.set_cookie(
+        key="admin_token",
+        value=create_admin_token(),
+        httponly=True,
+        max_age=86400,  # 24 hours
+        samesite="strict"
+    )
+    return response
 
 
 @app.get("/admin/logout")
@@ -598,26 +859,42 @@ async def admin_dashboard(
     # Get all stations (not just approved)
     stations = db.get_stations(status="approved", limit=500)
     stats = db.get_stats()
+    pending_covers_count = db.count_pending_covers()
 
-    return templates.TemplateResponse("admin.html", {
+    # Generate CSRF token
+    csrf_token = generate_csrf_token()
+
+    response = templates.TemplateResponse("admin.html", {
         "request": request,
         "stations": stations,
         "stats": stats,
+        "pending_covers_count": pending_covers_count,
         "message": request.query_params.get("message"),
         "error": request.query_params.get("error"),
         "check_results": {},
+        "csrf_token": csrf_token,
+        "is_2fa_enabled": is_2fa_enabled(),
         **get_mirror_context(request),
     })
+    set_csrf_cookie(response, csrf_token)
+    return response
 
 
 @app.post("/admin/delete/{station_id}")
 async def admin_delete_station(
+    request: Request,
     station_id: str,
-    admin_token: Optional[str] = Cookie(None)
+    admin_token: Optional[str] = Cookie(None),
+    csrf_token: str = Form(...),
 ):
     """Delete a station"""
     if not verify_admin_token(admin_token):
         return RedirectResponse("/admin", status_code=302)
+
+    # Verify CSRF token
+    cookie_csrf = request.cookies.get('csrf_token')
+    if not cookie_csrf or not verify_csrf_token(cookie_csrf) or not hmac.compare_digest(cookie_csrf, csrf_token):
+        return RedirectResponse("/admin/dashboard?error=Invalid+security+token", status_code=302)
 
     station = db.get_station_by_id(station_id)
     if not station:
@@ -642,12 +919,19 @@ async def admin_delete_station(
 
 @app.post("/admin/delete-cover/{station_id}")
 async def admin_delete_cover(
+    request: Request,
     station_id: str,
-    admin_token: Optional[str] = Cookie(None)
+    admin_token: Optional[str] = Cookie(None),
+    csrf_token: str = Form(...),
 ):
     """Delete cover art for a station"""
     if not verify_admin_token(admin_token):
         return RedirectResponse("/admin", status_code=302)
+
+    # Verify CSRF token
+    cookie_csrf = request.cookies.get('csrf_token')
+    if not cookie_csrf or not verify_csrf_token(cookie_csrf) or not hmac.compare_digest(cookie_csrf, csrf_token):
+        return RedirectResponse("/admin/dashboard?error=Invalid+security+token", status_code=302)
 
     station = db.get_station_by_id(station_id)
     if not station:
@@ -682,22 +966,37 @@ async def admin_edit_page(
     if not station:
         return RedirectResponse("/admin/dashboard?error=Station+not+found", status_code=302)
 
+    # Check for pending cover
+    pending_cover = db.get_pending_cover_for_station(station_id)
+    if pending_cover and pending_cover.get("submitted_at"):
+        pending_cover["submitted_at_formatted"] = datetime.fromtimestamp(
+            pending_cover["submitted_at"]
+        ).strftime("%Y-%m-%d %H:%M")
+
+    # Generate CSRF token
+    csrf_token = generate_csrf_token()
+
     from config import DEFAULT_GENRES, DEFAULT_LANGUAGES
-    return templates.TemplateResponse("admin_edit.html", {
+    response = templates.TemplateResponse("admin_edit.html", {
         "request": request,
         "station": station,
+        "pending_cover": pending_cover,
         "genres": DEFAULT_GENRES,
         "languages": DEFAULT_LANGUAGES,
         "message": request.query_params.get("message"),
         "error": request.query_params.get("error"),
+        "csrf_token": csrf_token,
         **get_mirror_context(request),
     })
+    set_csrf_cookie(response, csrf_token)
+    return response
 
 
 @app.post("/admin/edit/{station_id}", response_class=HTMLResponse)
 async def admin_edit_station(
     request: Request,
     station_id: str,
+    background_tasks: BackgroundTasks,
     admin_token: Optional[str] = Cookie(None),
     name: str = Form(...),
     genre: str = Form("Other"),
@@ -706,10 +1005,16 @@ async def admin_edit_station(
     bitrate: Optional[int] = Form(None),
     homepage: Optional[str] = Form(None),
     favicon_url: Optional[str] = Form(None),
+    csrf_token: str = Form(...),
 ):
     """Handle admin station edit"""
     if not verify_admin_token(admin_token):
         return RedirectResponse("/admin", status_code=302)
+
+    # Verify CSRF token
+    cookie_csrf = request.cookies.get('csrf_token')
+    if not cookie_csrf or not verify_csrf_token(cookie_csrf) or not hmac.compare_digest(cookie_csrf, csrf_token):
+        return RedirectResponse(f"/admin/edit/{station_id}?error=Invalid+security+token", status_code=302)
 
     station = db.get_station_by_id(station_id)
     if not station:
@@ -731,25 +1036,24 @@ async def admin_edit_station(
         new_favicon_url = favicon_url.strip() if favicon_url and favicon_url.strip() else None
         old_favicon_url = station.get("faviconUrl")
 
+        cover_message = ""
         if new_favicon_url and new_favicon_url != old_favicon_url:
-            # Download new cover art
-            cover_result = await download_cover_art(new_favicon_url)
-            if cover_result.success:
-                # Delete old cover file if exists
-                if old_favicon_url and "/static/covers/" in old_favicon_url:
-                    try:
-                        filename = old_favicon_url.split("/static/covers/")[-1]
-                        cover_path = COVERS_DIR / filename
-                        if cover_path.exists():
-                            cover_path.unlink()
-                    except Exception:
-                        pass
-                db.update_station(station_id, favicon_url=cover_result.tor_url)
-            else:
-                return RedirectResponse(
-                    f"/admin/edit/{station_id}?error=Failed+to+download+cover+art",
-                    status_code=302
-                )
+            # Delete old cover file if exists
+            if old_favicon_url and "/static/covers/" in old_favicon_url:
+                try:
+                    filename = old_favicon_url.split("/static/covers/")[-1]
+                    cover_path = COVERS_DIR / filename
+                    if cover_path.exists():
+                        cover_path.unlink()
+                except Exception:
+                    pass
+            # Clear the current favicon (new one is pending)
+            db.update_station(station_id, favicon_url=None)
+            # Queue for approval with external URL
+            from notifications import notify_cover_pending
+            db.create_cover_approval(station_id, new_favicon_url)
+            background_tasks.add_task(notify_cover_pending, station_id, name.strip())
+            cover_message = "+Cover+queued+for+approval."
         elif not new_favicon_url and old_favicon_url:
             # Clear cover art
             if "/static/covers/" in old_favicon_url:
@@ -763,7 +1067,7 @@ async def admin_edit_station(
             db.update_station(station_id, favicon_url=None)
 
         return RedirectResponse(
-            f"/admin/edit/{station_id}?message=Station+updated+successfully",
+            f"/admin/edit/{station_id}?message=Station+updated+successfully{cover_message}",
             status_code=302
         )
     except Exception as e:
@@ -775,12 +1079,19 @@ async def admin_edit_station(
 
 @app.post("/admin/check/{station_id}")
 async def admin_check_station(
+    request: Request,
     station_id: str,
-    admin_token: Optional[str] = Cookie(None)
+    admin_token: Optional[str] = Cookie(None),
+    csrf_token: str = Form(...),
 ):
     """Check a single station"""
     if not verify_admin_token(admin_token):
         return RedirectResponse("/admin", status_code=302)
+
+    # Verify CSRF token
+    cookie_csrf = request.cookies.get('csrf_token')
+    if not cookie_csrf or not verify_csrf_token(cookie_csrf) or not hmac.compare_digest(cookie_csrf, csrf_token):
+        return RedirectResponse("/admin/dashboard?error=Invalid+security+token", status_code=302)
 
     station = db.get_station_by_id(station_id)
     if not station:
@@ -800,11 +1111,18 @@ async def admin_check_station(
 
 @app.post("/admin/check-all")
 async def admin_check_all_stations(
-    admin_token: Optional[str] = Cookie(None)
+    request: Request,
+    admin_token: Optional[str] = Cookie(None),
+    csrf_token: str = Form(...),
 ):
     """Check all stations"""
     if not verify_admin_token(admin_token):
         return RedirectResponse("/admin", status_code=302)
+
+    # Verify CSRF token
+    cookie_csrf = request.cookies.get('csrf_token')
+    if not cookie_csrf or not verify_csrf_token(cookie_csrf) or not hmac.compare_digest(cookie_csrf, csrf_token):
+        return RedirectResponse("/admin/dashboard?error=Invalid+security+token", status_code=302)
 
     stations = db.get_stations_for_health_check()
     online_count = 0
@@ -826,6 +1144,219 @@ async def admin_check_all_stations(
     db.set_last_health_check_time()
     return RedirectResponse(
         f"/admin/dashboard?message=Checked+{len(stations)}+stations:+{online_count}+online,+{offline_count}+offline",
+        status_code=302
+    )
+
+
+# ============== 2FA Management Routes ==============
+
+@app.get("/admin/2fa", response_class=HTMLResponse)
+async def admin_2fa_page(
+    request: Request,
+    admin_token: Optional[str] = Cookie(None)
+):
+    """2FA settings page"""
+    if not verify_admin_token(admin_token):
+        return RedirectResponse("/admin", status_code=302)
+
+    csrf_token = generate_csrf_token()
+
+    # Generate a new secret for setup if not enabled
+    setup_secret = None
+    qr_code = None
+    if not is_2fa_enabled():
+        setup_secret = generate_2fa_secret()
+        qr_code = get_2fa_qr_code(setup_secret)
+
+    response = templates.TemplateResponse("admin_2fa.html", {
+        "request": request,
+        "is_2fa_enabled": is_2fa_enabled(),
+        "setup_secret": setup_secret,
+        "qr_code": qr_code,
+        "csrf_token": csrf_token,
+        "message": request.query_params.get("message"),
+        "error": request.query_params.get("error"),
+        **get_mirror_context(request),
+    })
+    set_csrf_cookie(response, csrf_token)
+    return response
+
+
+@app.post("/admin/2fa/enable", response_class=HTMLResponse)
+async def admin_enable_2fa(
+    request: Request,
+    admin_token: Optional[str] = Cookie(None),
+    secret: str = Form(...),
+    totp_code: str = Form(...),
+    csrf_token: str = Form(...),
+):
+    """Enable 2FA"""
+    if not verify_admin_token(admin_token):
+        return RedirectResponse("/admin", status_code=302)
+
+    # Verify CSRF token
+    cookie_csrf = request.cookies.get('csrf_token')
+    if not cookie_csrf or not verify_csrf_token(cookie_csrf) or not hmac.compare_digest(cookie_csrf, csrf_token):
+        return RedirectResponse("/admin/2fa?error=Invalid+security+token", status_code=302)
+
+    # Verify the TOTP code before enabling
+    if not verify_2fa_code(secret, totp_code):
+        return RedirectResponse("/admin/2fa?error=Invalid+verification+code.+Please+try+again.", status_code=302)
+
+    # Enable 2FA
+    backup_codes = enable_2fa(secret)
+
+    # Generate new CSRF token for the backup codes page
+    new_csrf = generate_csrf_token()
+
+    response = templates.TemplateResponse("admin_2fa_backup.html", {
+        "request": request,
+        "backup_codes": backup_codes,
+        "csrf_token": new_csrf,
+        **get_mirror_context(request),
+    })
+    set_csrf_cookie(response, new_csrf)
+    return response
+
+
+@app.post("/admin/2fa/disable", response_class=HTMLResponse)
+async def admin_disable_2fa(
+    request: Request,
+    admin_token: Optional[str] = Cookie(None),
+    totp_code: str = Form(None),
+    backup_code: str = Form(None),
+    csrf_token: str = Form(...),
+):
+    """Disable 2FA"""
+    if not verify_admin_token(admin_token):
+        return RedirectResponse("/admin", status_code=302)
+
+    # Verify CSRF token
+    cookie_csrf = request.cookies.get('csrf_token')
+    if not cookie_csrf or not verify_csrf_token(cookie_csrf) or not hmac.compare_digest(cookie_csrf, csrf_token):
+        return RedirectResponse("/admin/2fa?error=Invalid+security+token", status_code=302)
+
+    if not is_2fa_enabled():
+        return RedirectResponse("/admin/2fa?error=2FA+is+not+enabled", status_code=302)
+
+    # Verify with either TOTP code or backup code
+    verified = False
+    if totp_code and verify_2fa_code(get_2fa_secret(), totp_code):
+        verified = True
+    elif backup_code and verify_backup_code(backup_code):
+        verified = True
+
+    if not verified:
+        return RedirectResponse("/admin/2fa?error=Invalid+verification+code", status_code=302)
+
+    disable_2fa()
+    return RedirectResponse("/admin/2fa?message=2FA+has+been+disabled", status_code=302)
+
+
+# ============== Cover Approval Routes ==============
+
+@app.get("/admin/covers", response_class=HTMLResponse)
+async def admin_covers_page(
+    request: Request,
+    admin_token: Optional[str] = Cookie(None)
+):
+    """Cover approval queue page"""
+    if not verify_admin_token(admin_token):
+        return RedirectResponse("/admin", status_code=302)
+
+    csrf_token = generate_csrf_token()
+    pending_covers = db.get_pending_cover_approvals()
+
+    # Format timestamps for display
+    for cover in pending_covers:
+        if cover.get("submitted_at"):
+            cover["submitted_at_formatted"] = datetime.fromtimestamp(
+                cover["submitted_at"]
+            ).strftime("%Y-%m-%d %H:%M")
+
+    response = templates.TemplateResponse("admin_covers.html", {
+        "request": request,
+        "pending_covers": pending_covers,
+        "csrf_token": csrf_token,
+        "message": request.query_params.get("message"),
+        "error": request.query_params.get("error"),
+        **get_mirror_context(request),
+    })
+    set_csrf_cookie(response, csrf_token)
+    return response
+
+
+@app.post("/admin/covers/approve/{approval_id}")
+async def admin_approve_cover(
+    request: Request,
+    approval_id: str,
+    admin_token: Optional[str] = Cookie(None),
+    csrf_token: str = Form(...),
+):
+    """Approve a cover - download from external URL and save to server"""
+    if not verify_admin_token(admin_token):
+        return RedirectResponse("/admin", status_code=302)
+
+    # Verify CSRF
+    cookie_csrf = request.cookies.get('csrf_token')
+    if not cookie_csrf or not verify_csrf_token(cookie_csrf) or not hmac.compare_digest(cookie_csrf, csrf_token):
+        return RedirectResponse("/admin/covers?error=Invalid+security+token", status_code=302)
+
+    approval = db.get_cover_approval_by_id(approval_id)
+    if not approval:
+        return RedirectResponse("/admin/covers?error=Approval+not+found", status_code=302)
+
+    # Download from external URL
+    cover_url = approval.get("cover_url")
+    if not cover_url:
+        return RedirectResponse("/admin/covers?error=No+cover+URL+found", status_code=302)
+
+    download_result = await download_cover_art(cover_url)
+    if not download_result.success:
+        return RedirectResponse(
+            f"/admin/covers?error=Failed+to+download+cover:+{download_result.error}",
+            status_code=302
+        )
+
+    # Update station with the local URL
+    db.update_station(approval["station_id"], favicon_url=download_result.local_url)
+
+    # Mark approval as approved
+    db.approve_cover(approval_id)
+
+    station_name = approval.get("station_name", "Unknown")
+    return RedirectResponse(
+        f"/admin/covers?message=Cover+approved+for+{station_name}",
+        status_code=302
+    )
+
+
+@app.post("/admin/covers/reject/{approval_id}")
+async def admin_reject_cover(
+    request: Request,
+    approval_id: str,
+    admin_token: Optional[str] = Cookie(None),
+    csrf_token: str = Form(...),
+):
+    """Reject a cover"""
+    if not verify_admin_token(admin_token):
+        return RedirectResponse("/admin", status_code=302)
+
+    # Verify CSRF
+    cookie_csrf = request.cookies.get('csrf_token')
+    if not cookie_csrf or not verify_csrf_token(cookie_csrf) or not hmac.compare_digest(cookie_csrf, csrf_token):
+        return RedirectResponse("/admin/covers?error=Invalid+security+token", status_code=302)
+
+    approval = db.get_cover_approval_by_id(approval_id)
+    if not approval:
+        return RedirectResponse("/admin/covers?error=Approval+not+found", status_code=302)
+
+    # Mark approval as rejected
+    db.reject_cover(approval_id)
+
+    station_name = approval.get("station_name", "Unknown")
+    return RedirectResponse(
+        f"/admin/covers?message=Cover+rejected+for+{station_name}",
         status_code=302
     )
 

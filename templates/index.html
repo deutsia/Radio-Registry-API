@@ -9,11 +9,19 @@
 <div class="stats-grid">
     <div class="stat-card">
         <div class="stat-value">{{ stats.total_stations }}</div>
-        <div class="stat-label">Total Stations</div>
+        <div class="stat-label">Total</div>
     </div>
     <div class="stat-card">
-        <div class="stat-value">{{ stats.online_stations }}</div>
+        <div class="stat-value" style="color: #0f0;">{{ stats.online_stations }}</div>
         <div class="stat-label">Online</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #ff0;">{{ stats.offline_stations or 0 }}</div>
+        <div class="stat-label">Offline</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #f00;">{{ stats.dead_stations or 0 }}</div>
+        <div class="stat-label">Dead</div>
     </div>
     <div class="stat-card">
         <div class="stat-value">{{ stats.tor_stations }}</div>
@@ -22,6 +30,14 @@
     <div class="stat-card">
         <div class="stat-value">{{ stats.i2p_stations }}</div>
         <div class="stat-label">I2P</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #0f0;">{{ stats.tor_online or 0 }}</div>
+        <div class="stat-label">Tor Online</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #0f0;">{{ stats.i2p_online or 0 }}</div>
+        <div class="stat-label">I2P Online</div>
     </div>
 </div>
 
@@ -39,6 +55,12 @@
             {% for g in genres %}
             <option value="{{ g }}" {% if current_genre == g %}selected{% endif %}>{{ g }}</option>
             {% endfor %}
+        </select>
+
+        <select name="sort" class="filter-sort" onchange="this.form.submit()">
+            <option value="newest" {% if current_sort == "newest" or not current_sort %}selected{% endif %}>Newest</option>
+            <option value="health" {% if current_sort == "health" %}selected{% endif %}>Best Health</option>
+            <option value="alphabetical" {% if current_sort == "alphabetical" %}selected{% endif %}>A-Z</option>
         </select>
     </div>
 
@@ -66,13 +88,35 @@
                 {% else %}
                 <span class="badge badge-offline">OFFLINE</span>
                 {% endif %}
-                <span>{{ station.genre }}</span>
+                {% if station.genre %}
+                {% for g in station.genre.split(',') %}
+                <span class="badge badge-genre">{{ g.strip() }}</span>
+                {% endfor %}
+                {% endif %}
                 {% if station.codec %}
                 <span>{{ station.codec }}{% if station.bitrate %} {{ station.bitrate }}kbps{% endif %}</span>
                 {% endif %}
             </div>
             <div class="station-meta text-muted">
                 Last checked: {% if station.lastCheckTime %}{{ station.lastCheckTime | replace('T', ' ') | replace('Z', '') }} UTC{% else %}Never{% endif %}
+            </div>
+            <!-- Uptime Bar -->
+            <div class="uptime-bar">
+                {% if station.checkCount and station.checkCount > 0 %}
+                {% set pct = station.uptimePercent %}
+                {% if pct >= 95 %}{% set uclass = 'uptime-excellent' %}
+                {% elif pct >= 80 %}{% set uclass = 'uptime-good' %}
+                {% elif pct >= 60 %}{% set uclass = 'uptime-fair' %}
+                {% elif pct >= 40 %}{% set uclass = 'uptime-poor' %}
+                {% else %}{% set uclass = 'uptime-bad' %}{% endif %}
+                <div class="uptime-bar-track">
+                    <div class="uptime-bar-fill {{ uclass }}" style="width: {{ pct }}%;"></div>
+                </div>
+                <span class="uptime-label {{ uclass }}">{{ pct }}%</span>
+                <span class="uptime-checks">({{ station.checkOkCount }}/{{ station.checkCount }})</span>
+                {% else %}
+                <span class="uptime-label uptime-none">No checks yet</span>
+                {% endif %}
             </div>
         </div>
         <div class="station-actions">
@@ -91,13 +135,13 @@
 {% if total_pages > 1 %}
 <div class="pagination">
     {% if current_page > 1 %}
-    <a href="?{% if filter_network %}network={{ filter_network }}&{% endif %}{% if current_genre %}genre={{ current_genre }}&{% endif %}{% if search_query %}q={{ search_query }}&{% endif %}page={{ current_page - 1 }}" class="btn btn-secondary">&laquo; Prev</a>
+    <a href="?{% if filter_network %}network={{ filter_network }}&{% endif %}{% if current_genre %}genre={{ current_genre }}&{% endif %}{% if search_query %}q={{ search_query }}&{% endif %}{% if current_sort and current_sort != 'newest' %}sort={{ current_sort }}&{% endif %}page={{ current_page - 1 }}" class="btn btn-secondary">&laquo; Prev</a>
     {% endif %}
 
     <span class="pagination-info">Page {{ current_page }} of {{ total_pages }}</span>
 
     {% if current_page < total_pages %}
-    <a href="?{% if filter_network %}network={{ filter_network }}&{% endif %}{% if current_genre %}genre={{ current_genre }}&{% endif %}{% if search_query %}q={{ search_query }}&{% endif %}page={{ current_page + 1 }}" class="btn btn-secondary">Next &raquo;</a>
+    <a href="?{% if filter_network %}network={{ filter_network }}&{% endif %}{% if current_genre %}genre={{ current_genre }}&{% endif %}{% if search_query %}q={{ search_query }}&{% endif %}{% if current_sort and current_sort != 'newest' %}sort={{ current_sort }}&{% endif %}page={{ current_page + 1 }}" class="btn btn-secondary">Next &raquo;</a>
     {% endif %}
 </div>
 {% endif %}

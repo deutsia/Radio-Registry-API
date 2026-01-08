@@ -6,3 +6,7 @@ aiohttp>=3.9.0
 aiohttp-socks>=0.8.0
 python-multipart>=0.0.6
 slowapi>=0.1.9
+pyotp>=2.9.0
+qrcode[pil]>=7.4.0
+defusedxml>=0.7.1
+Pillow>=10.0.0

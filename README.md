@@ -634,13 +634,13 @@ This project has three versions available to suit different needs:
 - **Cover Art:** Downloads and mirrors locally
 - **Review:** Automatic NSFW detection via AI model
 - **Dependencies:** Requires PyTorch and NSFW detection model
-- **Best for:** High-volume instances that can handle ML workloads
+- **Best for:** You don't care about legal compliance and you want something autonomous  
 
 ### 3. Auto-Accept (No Review)
 - **Cover Art:** External URL embedding only (no downloading)
 - **Review:** None - covers are automatically accepted
 - **Dependencies:** Lightweight, no ML libraries required
-- **Best for:** Trusted communities or instances where cover art review isn't needed
+- **Best for:** Balance between both, autonomous, probably safe legally, potential problems for app's relying on your api that barr nsfw content
 
 Choose the version that best fits your use case, resources, and moderation requirements.
 

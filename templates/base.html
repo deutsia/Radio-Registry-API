@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Radio Registry{% endblock %}</title>
+    <style>
+        @font-face {
+            font-family: Cour;
+            src: url(/static/cour.woff2) format('woff2');
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: Cour, 'Courier New', Courier, monospace;
+            background: #000;
+            color: #fff;
+            line-height: 1.6;
+            min-height: 100vh;
+            font-size: 14px;
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
+        }
+
+        a {
+            color: #fff;
+            text-decoration: underline;
+        }
+
+        a:hover {
+            color: #fff;
+            text-decoration: none;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 0 1rem;
+        }
+
+        /* Header */
+        header {
+            border-bottom: 2px solid #fff;
+            padding: 1rem 0;
+            margin-bottom: 2rem;
+        }
+
+        header .container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+
+        .logo {
+            font-size: 1rem;
+            font-weight: normal;
+            color: #fff;
+            text-decoration: none;
+        }
+
+        .logo:hover {
+            text-decoration: underline;
+        }
+
+        nav {
+            display: flex;
+            gap: 1.5rem;
+        }
+
+        nav a {
+            color: #fff;
+        }
+
+        nav a.active {
+            text-decoration: none;
+        }
+
+        /* Main content */
+        main {
+            padding-bottom: 3rem;
+        }
+
+        h1, h2, h3 {
+            margin-bottom: 1rem;
+            font-weight: normal;
+        }
+
+        h1 { font-size: 1.25rem; }
+        h2 { font-size: 1rem; }
+        h3 { font-size: 1rem; }
+
+        p {
+            margin-bottom: 1rem;
+        }
+
+        /* Cards */
+        .card {
+            border: 2px solid #fff;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+        }
+
+        /* Forms */
+        form {
+            max-width: 500px;
+        }
+
+        .form-group {
+            margin-bottom: 1rem;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: #fff;
+        }
+
+        input, select, textarea {
+            width: 100%;
+            padding: 0.5rem;
+            background: #000;
+            border: 2px solid #fff;
+            color: #fff;
+            font-family: inherit;
+            font-size: 14px;
+        }
+
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+        }
+
+        button, .btn {
+            display: inline-block;
+            padding: 0.5rem 1rem;
+            background: #fff;
+            color: #000;
+            border: 2px solid #fff;
+            font-family: inherit;
+            font-size: 14px;
+            cursor: pointer;
+            text-decoration: none;
+        }
+
+        button:hover, .btn:hover {
+            background: #000;
+            color: #fff;
+            text-decoration: none;
+        }
+
+        .btn-secondary {
+            background: #000;
+            color: #fff;
+        }
+
+        .btn-secondary:hover {
+            background: #fff;
+            color: #000;
+        }
+
+        /* Alerts */
+        .alert {
+            padding: 1rem;
+            margin-bottom: 1rem;
+            border: 2px solid #fff;
+        }
+
+        .alert-success {
+            background: #000;
+            color: #fff;
+        }
+
+        .alert-error {
+            background: #000;
+            color: #fff;
+        }
+
+        /* Station list */
+        .filters {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+            max-width: none;
+            width: 100%;
+        }
+
+        .filters-left {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        .filters-right {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+            margin-left: auto;
+        }
+
+        .filters select {
+            width: auto;
+            min-width: 150px;
+        }
+
+        .filters select.filter-sort {
+            min-width: 100px;
+        }
+
+        .filters input[type="text"] {
+            width: auto;
+            min-width: 150px;
+        }
+
+        @media (max-width: 600px) {
+            .filters {
+                flex-wrap: wrap;
+            }
+            .filters-right {
+                margin-left: 0;
+                width: 100%;
+            }
+        }
+
+        .download-buttons {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .station-list {
+            display: grid;
+            gap: 1rem;
+        }
+
+        .station-card {
+            border: 2px solid #fff;
+            padding: 1rem;
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        .station-card:hover {
+            background: #111;
+        }
+
+        .station-info h3 {
+            margin-bottom: 0.25rem;
+            font-size: 1rem;
+        }
+
+        .station-meta {
+            display: flex;
+            gap: 1rem;
+            color: #888;
+            font-size: 12px;
+            flex-wrap: wrap;
+        }
+
+        .station-meta span {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+
+        .station-actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 0.125rem 0.375rem;
+            border: 1px solid #fff;
+            font-size: 10px;
+            text-transform: uppercase;
+            background: #000;
+            color: #fff;
+        }
+
+        .badge-tor {
+            background: #000;
+            color: #fff;
+        }
+
+        .badge-i2p {
+            background: #000;
+            color: #fff;
+        }
+
+        .badge-online {
+            background: #000;
+            color: #0f0;
+            border-color: #0f0;
+        }
+
+        .badge-offline {
+            background: #000;
+            color: #ff0;
+            border-color: #ff0;
+        }
+
+        .badge-dead {
+            background: #000;
+            color: #f00;
+            border-color: #f00;
+        }
+
+        .badge-genre {
+            background: #000;
+            color: #888;
+            border-color: #888;
+        }
+
+        /* Stats */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1rem;
+            margin-bottom: 2rem;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .stat-card {
+            border: 2px solid #fff;
+            padding: 1rem;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: normal;
+            color: #fff;
+        }
+
+        .stat-label {
+            color: #888;
+            font-size: 12px;
+        }
+
+        /* Uptime Bar */
+        .uptime-bar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 4px;
+        }
+
+        .uptime-bar-track {
+            flex: 1;
+            height: 8px;
+            background: #300;
+            border-radius: 4px;
+            overflow: hidden;
+            max-width: 120px;
+        }
+
+        .uptime-bar-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.3s ease;
+        }
+
+        .uptime-bar-fill.uptime-excellent { background: linear-gradient(90deg, #0a0, #0f0); }
+        .uptime-bar-fill.uptime-good { background: linear-gradient(90deg, #080, #0c0); }
+        .uptime-bar-fill.uptime-fair { background: linear-gradient(90deg, #aa0, #ff0); }
+        .uptime-bar-fill.uptime-poor { background: linear-gradient(90deg, #a50, #f80); }
+        .uptime-bar-fill.uptime-bad { background: linear-gradient(90deg, #800, #f00); }
+
+        .uptime-label {
+            font-size: 11px;
+            min-width: 32px;
+        }
+
+        .uptime-label.uptime-excellent { color: #0f0; }
+        .uptime-label.uptime-good { color: #0c0; }
+        .uptime-label.uptime-fair { color: #ff0; }
+        .uptime-label.uptime-poor { color: #f80; }
+        .uptime-label.uptime-bad { color: #f00; }
+        .uptime-label.uptime-none { color: #666; }
+
+        .uptime-checks {
+            font-size: 10px;
+            color: #666;
+        }
+
+        /* Footer */
+        footer {
+            margin-top: 3rem;
+            padding: 1rem 0;
+            border-top: 2px solid #fff;
+            color: #888;
+            font-size: 12px;
+        }
+
+        footer .container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+
+        footer .footer-left {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+
+        footer .footer-right {
+            text-align: right;
+        }
+
+        /* Tables */
+        table {
+            border-collapse: collapse;
+        }
+
+        td {
+            padding: 0.5rem 1rem 0.5rem 0;
+            color: #fff;
+        }
+
+        code {
+            background: #111;
+            padding: 0.125rem 0.25rem;
+            border: 1px solid #333;
+        }
+
+        /* Utilities */
+        .text-muted { color: #888; }
+        .text-success { color: #fff; }
+        .text-error { color: #fff; }
+        .mb-1 { margin-bottom: 0.5rem; }
+        .mb-2 { margin-bottom: 1rem; }
+        .mt-2 { margin-top: 1rem; }
+
+        small {
+            color: #888;
+        }
+
+        ul {
+            margin-left: 1.5rem;
+            margin-bottom: 1rem;
+        }
+
+        li {
+            margin-bottom: 0.25rem;
+        }
+
+        .xmr-address {
+            -webkit-user-select: text;
+            -moz-user-select: text;
+            -ms-user-select: text;
+            user-select: text;
+        }
+
+        .selectable-email {
+            -webkit-user-select: text;
+            -moz-user-select: text;
+            -ms-user-select: text;
+            user-select: text;
+        }
+
+        .selectable-api {
+            -webkit-user-select: text;
+            -moz-user-select: text;
+            -ms-user-select: text;
+            user-select: text;
+        }
+
+        /* Pagination */
+        .pagination {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 1rem;
+            margin-top: 1.5rem;
+            padding-top: 1.5rem;
+            border-top: 2px solid #fff;
+        }
+
+        .pagination-info {
+            color: #888;
+            font-size: 12px;
+        }
+
+        /* Responsive */
+        @media (max-width: 600px) {
+            .station-card {
+                grid-template-columns: 1fr;
+            }
+
+            .station-actions {
+                justify-content: flex-start;
+            }
+
+            nav {
+                gap: 1rem;
+            }
+        }
+    </style>
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <header>
+        <div class="container">
+            <a href="/" class="logo">Radio Registry</a>
+            <nav>
+                <a href="/" {% if request.url.path == "/" %}class="active"{% endif %}>Stations</a>
+                <a href="/submit" {% if request.url.path == "/submit" %}class="active"{% endif %}>Submit</a>
+                <a href="/about" {% if request.url.path == "/about" %}class="active"{% endif %}>About</a>
+            </nav>
+        </div>
+    </header>
+    
+    <main>
+        <div class="container">
+            {% block content %}{% endblock %}
+        </div>
+    </main>
+    
+    <footer>
+        <div class="container">
+            <span class="footer-left">Radio Registry &middot; No JavaScript &middot; <a href="/api/stations">API</a>{% if mirrors %} &middot; Mirrors: {% for mirror in mirrors %}<a href="{{ mirror.url }}">{{ mirror.name }}</a>{% if not loop.last %} &middot; {% endif %}{% endfor %}{% endif %}{% if current_network and current_network != "clearnet" %} &middot; {{ current_network | upper }}{% endif %}</span>
+            <span class="footer-right">XMR: <span class="xmr-address">83GGx86c6ZePiz8tEcGYtGJYmnjuP8W9cfLx6s98WAu8YkenjLr4zFC4RxcCk3hwFUiv59wS8KRPzNUUUqTrrYXCJAk4nrN</span></span>
+        </div>
+    </footer>
+</body>
+</html>

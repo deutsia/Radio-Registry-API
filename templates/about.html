@@ -1,0 +1,239 @@
+{% extends "base.html" %}
+
+{% block title %}About - Radio Registry{% endblock %}
+
+{% block content %}
+<h1>About Radio Registry</h1>
+
+<div class="card">
+    <h2>What is this?</h2>
+    <p>
+        Radio Registry is a privacy-focused radio station directory for Tor and I2P networks.
+        This is the <strong>automatic mirroring version</strong> - cover art from submissions
+        is automatically mirrored and hosted locally for privacy and reliability.
+    </p>
+    <p>
+        This is an open-source project you can run yourself to create your own radio station
+        directory for anonymous networks.
+    </p>
+
+    <h2>Setting Up Your Own Instance</h2>
+
+    <h3>Prerequisites</h3>
+    <ul>
+        <li>Python 3.8 or higher</li>
+        <li>Tor service running (for Tor station validation)</li>
+        <li>I2P router with HTTP proxy (for I2P station validation)</li>
+        <li>A hidden service configured (.onion address)</li>
+        <li>Optional: I2P tunnel (.i2p address)</li>
+    </ul>
+
+    <h3>Quick Start</h3>
+    <pre style="background: #111; padding: 1rem; overflow-x: auto;"><code># Clone the repository
+git clone [your-repo-url]
+cd radio-registry
+
+# Install dependencies
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+pip install -r requirements.txt
+
+# Initialize the database
+python -c "import database; database.init_db()"
+
+# Configure your settings
+# Edit config.py and set:
+# - ADMIN_PASSWORD (change from default!)
+# - ADMIN_SECRET_KEY (change from default!)
+# - TOR_BASE_URL (your .onion address)
+# - MIRRORS (your mirror URLs)
+
+# Run the server
+uvicorn main:app --host 127.0.0.1 --port 8080</code></pre>
+
+    <h3>Configuring Tor Hidden Service</h3>
+    <p>Add to your <code>/etc/tor/torrc</code>:</p>
+    <pre style="background: #111; padding: 1rem; overflow-x: auto;"><code>HiddenServiceDir /var/lib/tor/radio-registry/
+HiddenServicePort 80 127.0.0.1:8080</code></pre>
+    <p>Restart Tor, then get your .onion address:</p>
+    <pre style="background: #111; padding: 1rem; overflow-x: auto;"><code>sudo cat /var/lib/tor/radio-registry/hostname</code></pre>
+
+    <h3>Setting Up Health Checks</h3>
+    <p>Add a cron job to periodically check station health (runs every 5 minutes):</p>
+    <pre style="background: #111; padding: 1rem; overflow-x: auto;"><code>*/5 * * * * /path/to/venv/bin/python /path/to/checker.py >> /path/to/checker.log 2>&1</code></pre>
+
+    <h3>Admin Panel</h3>
+    <p>
+        Access the admin panel at <code>/admin</code>. Default password is set in <code>config.py</code>.
+        <strong>Change it immediately after first login!</strong>
+    </p>
+    <p>
+        Enable 2FA for additional security by clicking "Setup 2FA" in the admin panel.
+    </p>
+
+    <h3>Important Security Notes</h3>
+    <ul>
+        <li><strong>Change default passwords:</strong> Update ADMIN_PASSWORD in config.py</li>
+        <li><strong>Change secret key:</strong> Generate a new ADMIN_SECRET_KEY</li>
+        <li><strong>Enable 2FA:</strong> Add two-factor authentication via the admin panel</li>
+        <li><strong>Firewall:</strong> Only expose port 8080 to localhost, not the internet</li>
+        <li><strong>Reverse proxy:</strong> Run behind Tor hidden service or I2P tunnel</li>
+    </ul>
+
+    <h2>Customizing Your Instance</h2>
+    <p>
+        All major settings can be adjusted in <code>config.py</code>. Here are the most common customizations:
+    </p>
+
+    <h3>Health Check Settings</h3>
+    <p>Control how often stations are checked and when they're marked offline or dead:</p>
+    <pre style="background: #111; padding: 1rem; overflow-x: auto;"><code># In config.py
+
+# How often to check online stations (default: every 4 hours)
+HEALTH_CHECK_INTERVAL_HOURS = 4  # Set to 1 for hourly checks
+
+# How long to wait for a response (default: 30 seconds)
+HEALTH_CHECK_TIMEOUT = 30
+
+# Escalating recheck intervals for failed stations (in minutes)
+# Default: recheck at 5 min, 15 min, then 1 hour before confirming offline
+RECHECK_INTERVALS_MINUTES = [5, 15, 60]
+
+# When to mark a station as "dead" (default: 12 hours)
+DEAD_THRESHOLD_HOURS = 12</code></pre>
+
+    <p><strong>Example configurations:</strong></p>
+    <ul>
+        <li><strong>Faster checks:</strong> Set <code>HEALTH_CHECK_INTERVAL_HOURS = 1</code> for hourly checks</li>
+        <li><strong>More lenient:</strong> Set <code>DEAD_THRESHOLD_HOURS = 24</code> to wait longer before marking dead</li>
+        <li><strong>Quick failure detection:</strong> Set <code>RECHECK_INTERVALS_MINUTES = [2, 5, 15]</code></li>
+    </ul>
+
+    <h3>API & Pagination</h3>
+    <pre style="background: #111; padding: 1rem; overflow-x: auto;"><code># Default stations per page
+DEFAULT_PAGE_SIZE = 50
+
+# Maximum allowed (prevents abuse)
+MAX_PAGE_SIZE = 200</code></pre>
+
+    <h3>NSFW Detection</h3>
+    <p>
+        Cover art is automatically scanned using an ML model (~98% accuracy). The default threshold is 0.8 (80% confidence).
+        To adjust sensitivity, modify the threshold in <code>nsfw_scanner.py</code>:
+    </p>
+    <ul>
+        <li><strong>0.9+:</strong> Very permissive (may miss some NSFW)</li>
+        <li><strong>0.8:</strong> Default, balanced</li>
+        <li><strong>0.6-0.7:</strong> More aggressive (may have false positives)</li>
+    </ul>
+    <p class="text-muted" style="font-size: 12px;">
+        <strong>Note:</strong> The NSFW model is not perfect. Operators are responsible for all hosted content.
+        See the README for full legal disclaimer.
+    </p>
+
+    <h2>Submitting Stations</h2>
+    <p>
+        Running a radio station on Tor or I2P? <a href="/submit">Submit it to the directory</a>.
+        Submissions are automatically validated and approved if the stream is valid.
+    </p>
+
+    <h2>Cover Art Privacy</h2>
+    <p>
+        All station cover art is automatically downloaded and mirrored locally. When a station
+        is submitted with cover art, it is:
+    </p>
+    <ul>
+        <li>Downloaded through Tor (even for clearnet URLs)</li>
+        <li>Saved locally to prevent external tracking</li>
+        <li>Served via your Tor/I2P service</li>
+        <li>Limited to 8MB per image</li>
+    </ul>
+
+    <h2>API Access</h2>
+    <p>
+        The directory provides a JSON API for programmatic access:
+    </p>
+    <ul>
+        <li><code class="selectable-api">GET /api/stations</code> - List all stations</li>
+        <li><code class="selectable-api">GET /api/stations?network=tor</code> - Tor stations only</li>
+        <li><code class="selectable-api">GET /api/stations?network=i2p</code> - I2P stations only</li>
+        <li><code class="selectable-api">GET /api/stations?genre=electronic</code> - Filter by genre</li>
+        <li><code class="selectable-api">GET /api/stations?online_only=true</code> - Only online stations</li>
+        <li><code class="selectable-api">GET /api/stations/{id}</code> - Station details</li>
+        <li><code class="selectable-api">GET /api/stations/{id}/cover</code> - Station cover art</li>
+        <li><code class="selectable-api">GET /api/stats</code> - Directory statistics</li>
+        <li><code class="selectable-api">GET /api/genres</code> - List available genres</li>
+        <li><code class="selectable-api">POST /api/submit</code> - Submit a new station</li>
+    </ul>
+
+    <h3>Response Fields</h3>
+    <table class="mb-2">
+        <tr>
+            <td class="text-muted">healthStatus</td>
+            <td><code>online</code> | <code>offline</code> | <code>dead</code></td>
+        </tr>
+        <tr>
+            <td class="text-muted">consecutiveFailures</td>
+            <td>Number of failed checks in a row (0 when online)</td>
+        </tr>
+        <tr>
+            <td class="text-muted">lastCheckOk</td>
+            <td>Boolean - true if last check succeeded</td>
+        </tr>
+        <tr>
+            <td class="text-muted">lastCheckTime</td>
+            <td>ISO timestamp of last health check</td>
+        </tr>
+    </table>
+    <p class="text-muted" style="font-size: 12px;">
+        <strong>Health Status:</strong>
+        <span style="color: #0f0;">online</span> = last check succeeded |
+        <span style="color: #ff0;">offline</span> = failed but was online within 12 hrs |
+        <span style="color: #f00;">dead</span> = no response for 12+ hours
+    </p>
+
+    <h2>Statistics</h2>
+    <table class="mb-2">
+        <tr>
+            <td class="text-muted">Total Stations</td>
+            <td>{{ stats.total_stations }}</td>
+        </tr>
+        <tr>
+            <td class="text-muted">Online</td>
+            <td style="color: #0f0;">{{ stats.online_stations }}</td>
+        </tr>
+        <tr>
+            <td class="text-muted">Offline</td>
+            <td style="color: #ff0;">{{ stats.offline_stations or 0 }}</td>
+        </tr>
+        <tr>
+            <td class="text-muted">Dead (12+ hrs)</td>
+            <td style="color: #f00;">{{ stats.dead_stations or 0 }}</td>
+        </tr>
+        <tr>
+            <td class="text-muted">Tor Stations</td>
+            <td>{{ stats.tor_stations }}</td>
+        </tr>
+        <tr>
+            <td class="text-muted">I2P Stations</td>
+            <td>{{ stats.i2p_stations }}</td>
+        </tr>
+        <tr>
+            <td class="text-muted">Last Health Check</td>
+            <td>{% if stats.last_health_check %}{{ stats.last_health_check | replace('T', ' ') | replace('Z', '') }} UTC{% else %}Never{% endif %}</td>
+        </tr>
+    </table>
+
+    <h2>Project Resources</h2>
+    <ul>
+        <li><strong>Documentation:</strong> See README.md in the repository</li>
+        <li><strong>License:</strong> Apache License 2.0</li>
+        <li><strong>Source Code:</strong> Available on GitHub</li>
+    </ul>
+
+    <h2>Questions or Issues?</h2>
+    <p>
+        Check the project documentation or open an issue on GitHub for support.
+    </p>
+</div>
+{% endblock %}

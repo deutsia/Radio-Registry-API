@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+
+{% block title %}Stations - Radio Registry{% endblock %}
+
+{% block content %}
+<h1>Radio Stations</h1>
+
+<!-- Stats -->
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.total_stations }}</div>
+        <div class="stat-label">Total</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #0f0;">{{ stats.online_stations }}</div>
+        <div class="stat-label">Online</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #ff0;">{{ stats.offline_stations or 0 }}</div>
+        <div class="stat-label">Offline</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #f00;">{{ stats.dead_stations or 0 }}</div>
+        <div class="stat-label">Dead</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.tor_stations }}</div>
+        <div class="stat-label">Tor</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.i2p_stations }}</div>
+        <div class="stat-label">I2P</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #0f0;">{{ stats.tor_online or 0 }}</div>
+        <div class="stat-label">Tor Online</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #0f0;">{{ stats.i2p_online or 0 }}</div>
+        <div class="stat-label">I2P Online</div>
+    </div>
+</div>
+
+<!-- Filters -->
+<form method="get" class="filters">
+    <div class="filters-left">
+        <select name="network" onchange="this.form.submit()">
+            <option value="">All Networks</option>
+            <option value="tor" {% if filter_network == "tor" %}selected{% endif %}>Tor (.onion)</option>
+            <option value="i2p" {% if filter_network == "i2p" %}selected{% endif %}>I2P (.i2p)</option>
+        </select>
+
+        <select name="genre" onchange="this.form.submit()">
+            <option value="">All Genres</option>
+            {% for g in genres %}
+            <option value="{{ g }}" {% if current_genre == g %}selected{% endif %}>{{ g }}</option>
+            {% endfor %}
+        </select>
+
+        <select name="sort" class="filter-sort" onchange="this.form.submit()">
+            <option value="newest" {% if current_sort == "newest" or not current_sort %}selected{% endif %}>Newest</option>
+            <option value="health" {% if current_sort == "health" %}selected{% endif %}>Best Health</option>
+            <option value="alphabetical" {% if current_sort == "alphabetical" %}selected{% endif %}>A-Z</option>
+        </select>
+    </div>
+
+    <div class="filters-right">
+        <input type="text" name="q" placeholder="Search stations..." value="{{ search_query or '' }}">
+        <button type="submit" class="btn btn-secondary">Search</button>
+    </div>
+</form>
+
+<!-- Station List -->
+{% if stations %}
+<div class="station-list">
+    {% for station in stations %}
+    <div class="station-card">
+        <div class="station-info">
+            <h3>
+                <a href="/station/{{ station.id }}">{{ station.name }}</a>
+            </h3>
+            <div class="station-meta">
+                <span class="badge badge-{{ station.network }}">{{ station.network | upper }}</span>
+                {% if station.healthStatus == 'online' %}
+                <span class="badge badge-online">ONLINE</span>
+                {% elif station.healthStatus == 'dead' %}
+                <span class="badge badge-dead">DEAD</span>
+                {% else %}
+                <span class="badge badge-offline">OFFLINE</span>
+                {% endif %}
+                {% if station.genre %}
+                {% for g in station.genre.split(',') %}
+                <span class="badge badge-genre">{{ g.strip() }}</span>
+                {% endfor %}
+                {% endif %}
+                {% if station.codec %}
+                <span>{{ station.codec }}{% if station.bitrate %} {{ station.bitrate }}kbps{% endif %}</span>
+                {% endif %}
+            </div>
+            <div class="station-meta text-muted">
+                Last checked: {% if station.lastCheckTime %}{{ station.lastCheckTime | replace('T', ' ') | replace('Z', '') }} UTC{% else %}Never{% endif %}
+            </div>
+            <!-- Uptime Bar -->
+            <div class="uptime-bar">
+                {% if station.checkCount and station.checkCount > 0 %}
+                {% set pct = station.uptimePercent %}
+                {% if pct >= 95 %}{% set uclass = 'uptime-excellent' %}
+                {% elif pct >= 80 %}{% set uclass = 'uptime-good' %}
+                {% elif pct >= 60 %}{% set uclass = 'uptime-fair' %}
+                {% elif pct >= 40 %}{% set uclass = 'uptime-poor' %}
+                {% else %}{% set uclass = 'uptime-bad' %}{% endif %}
+                <div class="uptime-bar-track">
+                    <div class="uptime-bar-fill {{ uclass }}" style="width: {{ pct }}%;"></div>
+                </div>
+                <span class="uptime-label {{ uclass }}">{{ pct }}%</span>
+                <span class="uptime-checks">({{ station.checkOkCount }}/{{ station.checkCount }})</span>
+                {% else %}
+                <span class="uptime-label uptime-none">No checks yet</span>
+                {% endif %}
+            </div>
+        </div>
+        <div class="station-actions">
+            <a href="{{ station.streamUrl }}" class="btn" title="Stream URL">Play</a>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="card">
+    <p>No stations found matching your filters.</p>
+    <p><a href="/">Show all stations</a> or <a href="/submit">submit a new one</a>.</p>
+</div>
+{% endif %}
+
+{% if total_pages > 1 %}
+<div class="pagination">
+    {% if current_page > 1 %}
+    <a href="?{% if filter_network %}network={{ filter_network }}&{% endif %}{% if current_genre %}genre={{ current_genre }}&{% endif %}{% if search_query %}q={{ search_query }}&{% endif %}{% if current_sort and current_sort != 'newest' %}sort={{ current_sort }}&{% endif %}page={{ current_page - 1 }}" class="btn btn-secondary">&laquo; Prev</a>
+    {% endif %}
+
+    <span class="pagination-info">Page {{ current_page }} of {{ total_pages }}</span>
+
+    {% if current_page < total_pages %}
+    <a href="?{% if filter_network %}network={{ filter_network }}&{% endif %}{% if current_genre %}genre={{ current_genre }}&{% endif %}{% if search_query %}q={{ search_query }}&{% endif %}{% if current_sort and current_sort != 'newest' %}sort={{ current_sort }}&{% endif %}page={{ current_page + 1 }}" class="btn btn-secondary">Next &raquo;</a>
+    {% endif %}
+</div>
+{% endif %}
+
+<!-- Download Buttons -->
+<div class="download-buttons mt-2">
+    <span class="text-muted">Download JSON:</span>
+    <a href="/api/download/online" class="btn btn-secondary">Online Only</a>
+    <a href="/api/download/active" class="btn btn-secondary">Online + Offline</a>
+    <a href="/api/download/all" class="btn btn-secondary">All Stations</a>
+</div>
+{% endblock %}

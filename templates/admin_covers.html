@@ -1,0 +1,213 @@
+{% extends "base.html" %}
+
+{% block title %}Cover Approval Queue - Admin Panel{% endblock %}
+
+{% block head %}
+<style>
+    .admin-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 2rem;
+    }
+    .cover-card {
+        border: 2px solid #fff;
+        padding: 1rem;
+        margin-bottom: 1rem;
+        display: grid;
+        grid-template-columns: 200px 1fr auto;
+        gap: 1.5rem;
+        align-items: start;
+    }
+    .cover-card:hover {
+        background: #111;
+    }
+    .cover-reveal-container {
+        width: 200px;
+        min-height: 120px;
+    }
+    .cover-image {
+        max-width: 200px;
+        max-height: 200px;
+        display: block;
+        cursor: pointer;
+        transition: filter 0.3s;
+    }
+    .cover-image.blurred {
+        filter: blur(15px);
+    }
+    .cover-image:hover {
+        border-color: #ff0;
+    }
+    .blur-toggle {
+        font-size: 10px;
+        color: #888;
+        padding: 4px;
+        background: #222;
+        text-align: center;
+        cursor: pointer;
+    }
+    .blur-toggle:hover {
+        color: #ff0;
+    }
+    .cover-blocked {
+        width: 196px;
+        height: 120px;
+        border: 2px dashed #666;
+        background: #111;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        color: #666;
+        font-size: 12px;
+        text-align: center;
+    }
+    .cover-info {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+    .cover-info h3 {
+        margin: 0;
+    }
+    .cover-actions {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+    .btn-approve {
+        background: #0f0;
+        color: #000;
+        border-color: #0f0;
+    }
+    .btn-approve:hover {
+        background: #000;
+        color: #0f0;
+    }
+    .btn-reject {
+        background: #f00;
+        color: #fff;
+        border-color: #f00;
+    }
+    .btn-reject:hover {
+        background: #000;
+        color: #f00;
+    }
+    .metadata {
+        font-size: 12px;
+        color: #888;
+    }
+    .empty-state {
+        text-align: center;
+        padding: 3rem;
+        border: 2px dashed #333;
+        color: #888;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="admin-header">
+    <h1>Cover Approval Queue</h1>
+    <div>
+        <a href="/admin/dashboard" class="btn btn-secondary">&larr; Back to Dashboard</a>
+    </div>
+</div>
+
+{% if message %}
+<div class="alert alert-success">
+    {{ message }}
+</div>
+{% endif %}
+
+{% if error %}
+<div class="alert alert-error">
+    {{ error }}
+</div>
+{% endif %}
+
+<p class="text-muted" style="margin-bottom: 1.5rem;">
+    Review submitted cover art before it goes live. Images are embedded directly from external URLs (never downloaded).
+    Approval makes the external URL public. Click image to unblur for NSFW review.
+</p>
+
+{% if pending_covers %}
+<h2>Pending Covers ({{ pending_covers|length }})</h2>
+
+{% for cover in pending_covers %}
+{% set cover_network = 'clearnet' %}
+{% if '.onion' in cover.cover_url %}
+    {% set cover_network = 'tor' %}
+{% elif '.b32.i2p' in cover.cover_url or '.i2p/' in cover.cover_url %}
+    {% set cover_network = 'i2p' %}
+{% endif %}
+
+{% set can_preview = (cover_network == 'clearnet' and current_network == 'clearnet') or
+                     (cover_network == 'tor' and current_network == 'tor') or
+                     (cover_network == 'i2p' and current_network == 'i2p') %}
+
+<div class="cover-card">
+    <div class="cover-reveal-container">
+        {% if can_preview %}
+        <div>
+            <img src="{{ cover.cover_url }}"
+                 alt="Cover preview"
+                 class="cover-image blurred"
+                 id="img-{{ cover.id }}"
+                 onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+            <div style="display:none; color:#f00; font-size:12px;">Failed to load image</div>
+            <div class="blur-toggle" onclick="toggleBlur('{{ cover.id }}')">Click to toggle blur</div>
+        </div>
+        {% else %}
+        <div class="cover-blocked">
+            <div>Preview requires</div>
+            <div>{{ cover_network }} connection</div>
+            <div style="font-size:10px; margin-top:4px;">(You're on {{ current_network }})</div>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="cover-info">
+        <h3>{{ cover.station_name }}</h3>
+        <div>
+            <span class="badge badge-{{ cover.station_network }}">{{ cover.station_network }}</span>
+            <span class="badge" style="background:#444;">img: {{ cover_network }}</span>
+        </div>
+
+        <div class="metadata">
+            <div>Submitted: {{ cover.submitted_at_formatted }} UTC</div>
+            <div>Source: <code style="font-size: 11px; word-break: break-all;">{{ cover.cover_url[:80] }}{% if cover.cover_url|length > 80 %}...{% endif %}</code></div>
+        </div>
+    </div>
+
+    <div class="cover-actions">
+        <form method="post" action="/admin/covers/approve/{{ cover.id }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit" class="btn btn-approve">Approve</button>
+        </form>
+        <form method="post" action="/admin/covers/reject/{{ cover.id }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit" class="btn btn-reject">Reject</button>
+        </form>
+    </div>
+</div>
+{% endfor %}
+
+<script>
+function toggleBlur(id) {
+    var img = document.getElementById('img-' + id);
+    if (img) {
+        img.classList.toggle('blurred');
+    }
+}
+</script>
+
+{% else %}
+<div class="empty-state">
+    <h3>No pending covers</h3>
+    <p>All cover art submissions have been reviewed.</p>
+</div>
+{% endif %}
+
+{% endblock %}

@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+
+{% block title %}Admin Login - Radio Registry{% endblock %}
+
+{% block head %}
+<style>
+    .totp-field {
+        margin-top: 1rem;
+        padding: 1rem;
+        border: 2px solid #fff;
+    }
+    .totp-field label {
+        display: block;
+        margin-bottom: 0.5rem;
+    }
+    .backup-link {
+        font-size: 12px;
+        color: #888;
+        margin-top: 0.5rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<h1>Admin Login</h1>
+
+{% if error %}
+<div class="alert alert-error">
+    {{ error }}
+</div>
+{% endif %}
+
+<form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    <div class="form-group">
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" required autofocus>
+    </div>
+
+    {% if needs_2fa %}
+    <div class="totp-field">
+        <p><strong>Two-Factor Authentication Required</strong></p>
+        <div class="form-group">
+            <label for="totp_code">Enter the 6-digit code from your authenticator app</label>
+            <input type="text" id="totp_code" name="totp_code"
+                   pattern="[0-9]{6}" maxlength="6"
+                   placeholder="000000" autocomplete="off">
+        </div>
+        <div class="backup-link">
+            <details>
+                <summary>Use a backup code instead</summary>
+                <div class="form-group" style="margin-top: 0.5rem;">
+                    <label for="backup_code">Backup Code</label>
+                    <input type="text" id="backup_code" name="backup_code"
+                           placeholder="ABCD1234" autocomplete="off">
+                </div>
+            </details>
+        </div>
+    </div>
+    {% endif %}
+
+    <button type="submit">Login</button>
+</form>
+{% endblock %}

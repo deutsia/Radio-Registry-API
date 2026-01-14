@@ -38,7 +38,6 @@ from config import (
     COVERS_DIR, MIRRORS
 )
 from stream_validator import validate_stream
-from cover_downloader import download_cover_art
 from csrf import generate_csrf_token, verify_csrf_token, set_csrf_cookie
 
 
@@ -86,8 +85,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
 
         # Content Security Policy - prevents XSS and other injection attacks
-        # Relax CSP for admin cover approval page (needs external images + inline JS)
-        if request.url.path.startswith("/admin/covers"):
+        # Relax CSP for admin pages that need inline JS (covers, 2fa)
+        if request.url.path.startswith("/admin/covers") or request.url.path.startswith("/admin/2fa"):
             response.headers["Content-Security-Policy"] = (
                 "default-src 'self'; "
                 "script-src 'self' 'unsafe-inline'; "
@@ -327,7 +326,7 @@ async def health_check():
     return HealthResponse(
         status="ok" if db_ok else "degraded",
         database=db_ok,
-        timestamp=datetime.now().isoformat() + "Z"
+        timestamp=datetime.utcnow().isoformat() + "Z"
     )
 
 
@@ -969,9 +968,9 @@ async def admin_edit_page(
     # Check for pending cover
     pending_cover = db.get_pending_cover_for_station(station_id)
     if pending_cover and pending_cover.get("submitted_at"):
-        pending_cover["submitted_at_formatted"] = datetime.fromtimestamp(
+        pending_cover["submitted_at_formatted"] = datetime.utcfromtimestamp(
             pending_cover["submitted_at"]
-        ).strftime("%Y-%m-%d %H:%M")
+        ).strftime("%Y-%m-%d %H:%M UTC")
 
     # Generate CSRF token
     csrf_token = generate_csrf_token()
@@ -1270,9 +1269,9 @@ async def admin_covers_page(
     # Format timestamps for display
     for cover in pending_covers:
         if cover.get("submitted_at"):
-            cover["submitted_at_formatted"] = datetime.fromtimestamp(
+            cover["submitted_at_formatted"] = datetime.utcfromtimestamp(
                 cover["submitted_at"]
-            ).strftime("%Y-%m-%d %H:%M")
+            ).strftime("%Y-%m-%d %H:%M UTC")
 
     response = templates.TemplateResponse("admin_covers.html", {
         "request": request,
@@ -1293,7 +1292,7 @@ async def admin_approve_cover(
     admin_token: Optional[str] = Cookie(None),
     csrf_token: str = Form(...),
 ):
-    """Approve a cover - download from external URL and save to server"""
+    """Approve a cover - set the external URL as the station's favicon (no downloading)"""
     if not verify_admin_token(admin_token):
         return RedirectResponse("/admin", status_code=302)
 
@@ -1306,20 +1305,12 @@ async def admin_approve_cover(
     if not approval:
         return RedirectResponse("/admin/covers?error=Approval+not+found", status_code=302)
 
-    # Download from external URL
     cover_url = approval.get("cover_url")
     if not cover_url:
         return RedirectResponse("/admin/covers?error=No+cover+URL+found", status_code=302)
 
-    download_result = await download_cover_art(cover_url)
-    if not download_result.success:
-        return RedirectResponse(
-            f"/admin/covers?error=Failed+to+download+cover:+{download_result.error}",
-            status_code=302
-        )
-
-    # Update station with the local URL
-    db.update_station(approval["station_id"], favicon_url=download_result.local_url)
+    # Set the external URL directly as the station's favicon (no downloading)
+    db.update_station(approval["station_id"], favicon_url=cover_url)
 
     # Mark approval as approved
     db.approve_cover(approval_id)

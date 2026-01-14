@@ -139,10 +139,10 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
 
 
 def _timestamp_to_iso(ts: Optional[int]) -> Optional[str]:
-    """Convert Unix timestamp to ISO format string"""
+    """Convert Unix timestamp to ISO format string (UTC)"""
     if ts is None:
         return None
-    return datetime.fromtimestamp(ts).isoformat() + "Z"
+    return datetime.utcfromtimestamp(ts).isoformat() + "Z"
 
 
 def _now() -> int:

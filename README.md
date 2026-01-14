@@ -2,9 +2,9 @@
 
 A privacy-focused radio station directory designed for Tor and I2P networks. This FastAPI application provides both a JSON API and a server-rendered HTML interface for discovering, submitting, and managing radio stations accessible through anonymous networks.
 
-**This is the standard version** - cover art URLs are submitted for manual review and embededd directly from their original sources for review. No automatic downloading or local mirroring of cover art without manual review.
+**This is the standard/production version** - cover art URLs are submitted for manual admin review with a blur toggle. Images are embedded directly from their external sources and are **never downloaded or hosted locally**. This is the recommended version for most deployments.
 
-> **Note:** If you need automatic cover art mirroring with NSFW detection, see the automatic mirroring release instead.
+> **Note:** Alternative versions are available - see [Versions](#versions) section for automatic NSFW detection or auto-accept options.
 
 ## Features
 
@@ -602,9 +602,15 @@ Notifications are sent automatically when new  is submitted and needs approval.
 - HLS (HTTP Live Streaming / m3u8 playlists)
 - DASH (Dynamic Adaptive Streaming)
 
-## 
+## Cover Art
 
-Cover art URLs submitted with stations are externally embedded for manual review with css blur and a JS toggle. While this version does download and mirror cover art locally, **it is only after manual review.**
+Cover art URLs submitted with stations are queued for manual admin review. Images are embedded directly from their external source with a CSS blur overlay - the admin can toggle the blur to review for NSFW content. **No images are ever downloaded or hosted locally** - approved cover art simply makes the external URL visible to users.
+
+This approach:
+- Eliminates legal liability from hosting third-party images
+- Reduces storage and bandwidth requirements
+- Keeps the system simple and lightweight
+- Still allows NSFW filtering through manual review
 
 ## Rate Limits
 
@@ -616,12 +622,27 @@ Cover art URLs submitted with stations are externally embedded for manual review
 
 ## Versions
 
-This project has multiple versions available:
+This project has three versions available to suit different needs:
 
-- **This version (standard):** No automatic cover art mirroring - Manual review with external embedding + blur. 
-- **Automatic mirroring version:** Full automatic mirroring with cover art downloading and NSFW detection (requires Torch/ML dependencies)
+### 1. Standard (This Repository) - Recommended for Production
+- **Cover Art:** External URL embedding only (no downloading)
+- **Review:** Manual admin review with blur toggle
+- **Dependencies:** Lightweight, no ML libraries required
+- **Best for:** Production deployments prioritizing simplicity and legal safety
 
-Choose the version that best fits your use case and resources.
+### 2. Automatic NSFW Detection
+- **Cover Art:** Downloads and mirrors locally
+- **Review:** Automatic NSFW detection via AI model
+- **Dependencies:** Requires PyTorch and NSFW detection model
+- **Best for:** High-volume instances that can handle ML workloads
+
+### 3. Auto-Accept (No Review)
+- **Cover Art:** External URL embedding only (no downloading)
+- **Review:** None - covers are automatically accepted
+- **Dependencies:** Lightweight, no ML libraries required
+- **Best for:** Trusted communities or instances where cover art review isn't needed
+
+Choose the version that best fits your use case, resources, and moderation requirements.
 
 ## Security Considerations
 

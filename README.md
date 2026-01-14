@@ -542,7 +542,7 @@ MIRRORS = {
 }
 ```
 
-### Setting Up Tor Hidden Service
+### Setting Up Tor Hidden Service (optional, must have for Tor station checking
 
 1. Edit `/etc/tor/torrc`:
 ```
@@ -560,7 +560,7 @@ sudo systemctl restart tor
 sudo cat /var/lib/tor/radio-registry/hostname
 ```
 
-### Setting Up I2P Tunnel (Optional)
+### Setting Up I2P Tunnel (Optional, must have for I2P station checking)
 
 1. Install I2P and start the router
 2. Configure an I2P server tunnel pointing to `127.0.0.1:8080`
@@ -655,26 +655,7 @@ Choose the version that best fits your use case, resources, and moderation requi
 
 ## Contributing
 
-Contributions are welcome! To contribute:
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Make your changes
-4. Test thoroughly
-5. Commit with clear messages
-6. Submit a pull request
-
-Please ensure:
-- Code follows existing style
-- No hardcoded credentials or personal info
-- Changes are well-documented
-- Tests pass (if applicable)
-
-## Support
-
-- **Issues:** Report bugs or request features via GitHub Issues
-- **Documentation:** See `/about` page for setup help
-- **Security:** Report security issues privately via GitHub Security Advisories
+This project isn't maintained.
 
 ## License
 

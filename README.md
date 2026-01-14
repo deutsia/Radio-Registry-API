@@ -655,19 +655,8 @@ Choose the version that best fits your use case, resources, and moderation requi
 
 ## Contributing
 
-This project isn't maintained.
+This project isn't maintained. If you want to change it, fork and make your own repo. I won't be accepting pull requests or issues. 
 
 ## License
 
 This project is licensed under the Apache License 2.0. See [LICENSE](LICENSE) for details.
-
-You are free to:
-- Use commercially
-- Modify
-- Distribute
-- Use privately
-
-Under the conditions:
-- Include original license and copyright
-- State changes made
-- Include NOTICE file if present
